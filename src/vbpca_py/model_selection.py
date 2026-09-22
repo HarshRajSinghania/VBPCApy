@@ -15,6 +15,7 @@ import numpy as np
 import scipy.sparse as sp
 
 from ._memory import exceeds_budget, format_bytes, resolve_max_dense_bytes
+from ._missing import make_xprobe_mask
 from ._pca_full import _explained_variance, _marginal_variance, _reconstruct_data
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -264,7 +265,7 @@ def _normalize_mask_for_selection(
     return np.asarray(mask, dtype=bool)
 
 
-def _ensure_metric_opts(  # noqa: PLR0914
+def _ensure_metric_opts(
     fit_opts: dict[str, object],
     x_arr: np.ndarray | sp.csr_matrix,
     mask: Matrix | None,
@@ -280,9 +281,8 @@ def _ensure_metric_opts(  # noqa: PLR0914
       of observed entries is created when the selection metric is ``"prms"``
       or the caller requested a positive ``xprobe_fraction``. The requested
       fraction is used when present; ``"prms"`` otherwise falls back to the
-      historical 10 % default. The corresponding entries are set to NaN in
-      *x_arr* (dense) or removed from the CSR structure (sparse) so the main
-      fit never sees them.
+      historical 10 % default. Candidate fits receive the same explicit probe;
+      the estimator removes those entries from its training data and mask.
     """
     # --- cost: ensure cfstop is non-empty -----------------------------------
     cfstop_raw = fit_opts.get("cfstop")
@@ -301,51 +301,13 @@ def _ensure_metric_opts(  # noqa: PLR0914
         return
     probe_fraction = configured_fraction if has_configured_fraction else _PROBE_FRACTION
 
-    rng = np.random.default_rng(seed)
-
-    if sp.issparse(x_arr):
-        x_csr = sp.csr_matrix(x_arr)
-        n_probe = max(1, round(x_csr.nnz * probe_fraction))
-        probe_idx = rng.choice(x_csr.nnz, size=n_probe, replace=False)
-
-        # Build xprobe as a copy, then zero-out non-probe in probe
-        # and zero-out probe in data.
-        rows, cols = x_csr.nonzero()
-        sp_rows = rows[probe_idx]
-        sp_cols = cols[probe_idx]
-        sp_vals = np.array(x_csr[sp_rows, sp_cols]).ravel()
-
-        xprobe_sp = sp.lil_matrix(x_csr.shape, dtype=float)
-        for r, c, v in zip(sp_rows, sp_cols, sp_vals, strict=True):
-            xprobe_sp[r, c] = v
-        fit_opts["xprobe"] = sp.csr_matrix(xprobe_sp)
-
-        # Remove probe entries from training data
-        for r, c in zip(sp_rows, sp_cols, strict=True):
-            x_csr[r, c] = 0.0
-        x_csr.eliminate_zeros()
-        # Update x_arr in place (callers hold a reference to x_arr)
-        x_csr.sort_indices()
-    else:
-        x_dense = np.asarray(x_arr)
-        if mask is not None:
-            obs_mask = np.asarray(mask, dtype=bool)
-        else:
-            obs_mask = ~np.isnan(x_dense)
-
-        obs_rows, obs_cols = np.nonzero(obs_mask)
-        n_probe = max(1, round(len(obs_rows) * probe_fraction))
-        probe_idx = rng.choice(len(obs_rows), size=n_probe, replace=False)
-
-        probe_rows: np.ndarray = obs_rows[probe_idx]
-        probe_cols: np.ndarray = obs_cols[probe_idx]
-
-        xprobe_dense = np.full(x_dense.shape, np.nan, dtype=float)
-        xprobe_dense[probe_rows, probe_cols] = x_dense[probe_rows, probe_cols]
-        fit_opts["xprobe"] = xprobe_dense
-
-        # Mark probe entries as missing in the training data
-        x_dense[probe_rows, probe_cols] = np.nan
+    _x_masked, xprobe = make_xprobe_mask(
+        x_arr,
+        fraction=probe_fraction,
+        rng=np.random.default_rng(seed),
+        mask=mask,
+    )
+    fit_opts["xprobe"] = xprobe
 
 
 @dataclass(frozen=True)

@@ -226,3 +226,37 @@ def test_make_xprobe_mask_bad_fraction_raises() -> None:
         make_xprobe_mask(x, fraction=1.0)
     with pytest.raises(ValueError, match="fraction must be in"):
         make_xprobe_mask(x, fraction=-0.1)
+
+
+def test_make_xprobe_mask_dense_respects_explicit_mask() -> None:
+    x = np.arange(30, dtype=float).reshape(5, 6)
+    mask = np.zeros_like(x, dtype=bool)
+    mask[:, :3] = True
+
+    x_train, xprobe = make_xprobe_mask(
+        x,
+        fraction=0.2,
+        rng=np.random.default_rng(12),
+        mask=mask,
+    )
+
+    probe_mask = ~np.isnan(xprobe)
+    assert np.all(mask[probe_mask])
+    assert np.all(np.isnan(x_train[probe_mask]))
+    assert not np.any(probe_mask & ~mask)
+
+
+def test_make_xprobe_mask_sparse_respects_mask_and_preserves_observed_zero() -> None:
+    x = sp.csr_matrix(np.array([[0.0, 2.0], [3.0, 0.0]]))
+    mask = sp.csr_matrix(np.ones((2, 2), dtype=bool))
+
+    _x_train, xprobe = make_xprobe_mask(
+        x,
+        fraction=0.99,
+        rng=np.random.default_rng(4),
+        mask=mask,
+    )
+
+    assert sp.isspmatrix_csr(xprobe)
+    assert xprobe.nnz == 4
+    assert np.count_nonzero(np.isclose(xprobe.data, 0.0)) == 2

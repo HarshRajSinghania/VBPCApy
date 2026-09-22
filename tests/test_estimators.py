@@ -4,6 +4,7 @@ import pickle
 
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from vbpca_py.estimators import VBPCA
 
@@ -32,6 +33,64 @@ def test_vbpca_with_mask() -> None:
     assert model.scores_.shape[1] == x.shape[1]
     recon = model.inverse_transform()
     assert recon.shape == x.shape
+
+
+def test_explicit_probe_remains_active_with_explicit_mask() -> None:
+    rng = np.random.default_rng(145)
+    x = rng.standard_normal((6, 12))
+    mask = np.ones_like(x, dtype=bool)
+    xprobe = np.full_like(x, np.nan)
+    xprobe[0, 0] = x[0, 0]
+
+    model = VBPCA(
+        n_components=2,
+        maxiters=5,
+        niter_broadprior=0,
+        random_state=145,
+        rotate2pca=0,
+        verbose=0,
+    ).fit(x, mask=mask, xprobe=xprobe)
+
+    assert np.isfinite(model.prms_)
+    assert model.learning_curve_ is not None
+    assert np.all(np.isfinite(model.learning_curve_["prms"]))
+
+
+def test_generated_probe_remains_active_with_explicit_mask() -> None:
+    rng = np.random.default_rng(146)
+    x = rng.standard_normal((8, 16))
+    mask = rng.random(x.shape) > 0.15
+
+    model = VBPCA(
+        n_components=2,
+        maxiters=5,
+        niter_broadprior=0,
+        xprobe_fraction=0.1,
+        random_state=146,
+        rotate2pca=0,
+        verbose=0,
+    ).fit(x, mask=mask)
+
+    assert np.isfinite(model.prms_)
+
+
+def test_sparse_probe_is_supported_with_explicit_mask() -> None:
+    rng = np.random.default_rng(147)
+    dense = rng.standard_normal((6, 12))
+    x = sp.csr_matrix(dense)
+    mask = sp.csr_matrix(np.ones(x.shape, dtype=bool))
+    xprobe = sp.csr_matrix(([dense[0, 0]], ([0], [0])), shape=x.shape)
+
+    model = VBPCA(
+        n_components=2,
+        maxiters=5,
+        niter_broadprior=0,
+        random_state=147,
+        rotate2pca=0,
+        verbose=0,
+    ).fit(x, mask=mask, xprobe=xprobe)
+
+    assert np.isfinite(model.prms_)
 
 
 def test_transform_before_fit_raises() -> None:

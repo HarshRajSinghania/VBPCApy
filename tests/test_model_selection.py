@@ -202,6 +202,27 @@ def test_single_candidate_selection_matches_direct_fit_with_probe() -> None:
     assert selected.noise_variance_ == pytest.approx(direct.noise_variance_)
 
 
+def test_prms_selection_with_explicit_mask_uses_probe_metric() -> None:
+    rng = np.random.default_rng(145)
+    x = _low_rank_data(rng, n_features=8, n_samples=16, rank=2)
+    mask = rng.random(x.shape) > 0.15
+
+    _, best_metrics, trace, _ = select_n_components(
+        x,
+        mask=mask,
+        components=[1, 2],
+        config=SelectionConfig(metric="prms", compute_explained_variance=False),
+        maxiters=5,
+        niter_broadprior=0,
+        random_state=145,
+        rotate2pca=0,
+        verbose=0,
+    )
+
+    assert np.isfinite(best_metrics["prms"])
+    assert all(np.isfinite(entry["prms"]) for entry in trace)
+
+
 def test_select_n_components_normalizes_component_candidates() -> None:
     rng = np.random.default_rng(4)
     x = _low_rank_data(rng, n_features=5, n_samples=7, rank=2)

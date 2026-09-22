@@ -289,8 +289,6 @@ def _prepare_data(
     Returns:
         Data, probe data, original shapes, and kept row/col indices.
 
-    Raises:
-        ValueError: If ``x_probe`` sparsity does not match ``x``.
     """
     x_probe_opt = opts.get("xprobe", None)
 
@@ -299,20 +297,7 @@ def _prepare_data(
     else:
         x_data = np.array(x, dtype=float).copy()
 
-    x_probe: Matrix | None = None
-    if x_probe_opt is not None:
-        x_probe_array = np.asarray(x_probe_opt, dtype=float)
-        if x_probe_array.size != 0:
-            if sp.issparse(x_probe_opt):
-                if not sp.issparse(x_data):
-                    msg = "x_probe must be dense when x is dense"
-                    raise ValueError(msg)
-                x_probe = sp.csr_matrix(cast("Any", x_probe_opt))
-            else:
-                if sp.issparse(x_data):
-                    msg = "x_probe must be sparse when x is sparse"
-                    raise ValueError(msg)
-                x_probe = x_probe_array.copy()
+    x_probe = _coerce_probe(x_probe_opt, sparse_input=sp.issparse(x_data))
 
     n_features_original, n_samples_original = x_data.shape
 
@@ -323,6 +308,8 @@ def _prepare_data(
             if sp.isspmatrix(mask_override)
             else np.asarray(mask_override, dtype=bool)
         )
+
+    x_data, mask_clean = _exclude_probe_from_training(x_data, x_probe, mask_clean)
 
     x_data, x_probe, row_idx, col_idx, init_opt = remove_empty_entries(
         x_data,
@@ -349,6 +336,145 @@ def _prepare_data(
         row_idx,
         col_idx,
     )
+
+
+def _coerce_probe(probe: object, *, sparse_input: bool) -> Matrix | None:
+    """Copy a non-empty probe while enforcing the input's storage format.
+
+    Returns:
+        The copied probe, or ``None`` when no non-empty probe was supplied.
+
+    Raises:
+        ValueError: If the probe and input use different storage formats.
+    """
+    if probe is None:
+        return None
+    if sp.issparse(probe):
+        if not sparse_input:
+            msg = "x_probe must be dense when x is dense"
+            raise ValueError(msg)
+        probe_sparse = sp.csr_matrix(cast("Any", probe), copy=True)
+        return probe_sparse if probe_sparse.nnz else None
+    if sparse_input:
+        msg = "x_probe must be sparse when x is sparse"
+        raise ValueError(msg)
+    probe_array = np.asarray(probe, dtype=float)
+    return probe_array.copy() if probe_array.size else None
+
+
+def _probe_mask(x_probe: Matrix) -> Matrix:
+    """Return an observation mask for a dense or sparse probe matrix."""
+    if sp.issparse(x_probe):
+        mask_probe = sp.csr_matrix(x_probe, copy=True)
+        mask_probe.data = np.ones(mask_probe.nnz, dtype=bool)
+        return mask_probe
+    return ~np.isnan(np.asarray(x_probe, dtype=float))
+
+
+def _exclude_probe_from_training(
+    x_data: Matrix,
+    x_probe: Matrix | None,
+    mask: Matrix | None,
+) -> tuple[Matrix, Matrix | None]:
+    """Remove probe positions from training data and an optional mask.
+
+    An explicit probe is authoritative: even when the caller passes the
+    unsplit data or an observation mask that still contains probe positions,
+    those entries must not be visible to the fit.
+
+    Returns:
+        Training data and mask with every probe position excluded.
+
+    Raises:
+        ValueError: If data, probe, and mask shapes or sparse formats disagree.
+    """
+    if x_probe is None:
+        return x_data, mask
+    if x_probe.shape != x_data.shape:
+        msg = "x_probe must have the same shape as x"
+        raise ValueError(msg)
+
+    if sp.issparse(x_data):
+        return _exclude_sparse_probe(x_data, x_probe, mask)
+    return _exclude_dense_probe(x_data, x_probe, mask)
+
+
+def _exclude_sparse_probe(
+    x_data: Matrix,
+    x_probe: Matrix,
+    mask: Matrix | None,
+) -> tuple[sp.csr_matrix, Matrix | None]:
+    """Remove sparse probe coordinates from sparse training inputs.
+
+    Returns:
+        Sparse training data and its optional updated observation mask.
+
+    Raises:
+        ValueError: If the probe is dense or the mask shape is invalid.
+    """
+    if not sp.issparse(x_probe):
+        msg = "x_probe must be sparse when x is sparse"
+        raise ValueError(msg)
+    probe_sparse = sp.csr_matrix(_probe_mask(x_probe), dtype=bool)
+    data_sparse = sp.csr_matrix(x_data, copy=True)
+    data_sparse -= data_sparse.multiply(probe_sparse)
+    data_sparse.eliminate_zeros()
+
+    if mask is None:
+        return data_sparse, None
+    if sp.issparse(mask):
+        mask_out = sp.csr_matrix(mask, dtype=bool, copy=True)
+        _validate_mask_shape(mask_out, x_data)
+        mask_out -= mask_out.multiply(probe_sparse)
+        mask_out.eliminate_zeros()
+        return data_sparse, mask_out
+
+    mask_arr = np.asarray(mask, dtype=bool).copy()
+    _validate_mask_shape(mask_arr, x_data)
+    rows, cols = probe_sparse.nonzero()
+    mask_arr[rows, cols] = False
+    return data_sparse, mask_arr
+
+
+def _exclude_dense_probe(
+    x_data: Matrix,
+    x_probe: Matrix,
+    mask: Matrix | None,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Remove dense probe coordinates from dense training inputs.
+
+    Returns:
+        Dense training data and its optional updated observation mask.
+
+    Raises:
+        ValueError: If the probe or mask is sparse, or the mask shape is invalid.
+    """
+    if sp.issparse(x_probe):
+        msg = "x_probe must be dense when x is dense"
+        raise ValueError(msg)
+    data_arr = np.asarray(x_data, dtype=float).copy()
+    probe_arr = np.asarray(_probe_mask(x_probe), dtype=bool)
+    data_arr[probe_arr] = np.nan
+    if mask is None:
+        return data_arr, None
+    if sp.issparse(mask):
+        msg = "mask must be dense when x is dense"
+        raise ValueError(msg)
+    mask_arr = np.asarray(mask, dtype=bool).copy()
+    _validate_mask_shape(mask_arr, x_data)
+    mask_arr[probe_arr] = False
+    return data_arr, mask_arr
+
+
+def _validate_mask_shape(mask: Matrix, x_data: Matrix) -> None:
+    """Raise when an observation mask does not match its data matrix.
+
+    Raises:
+        ValueError: If the two shapes differ.
+    """
+    if mask.shape != x_data.shape:
+        msg = "mask must have the same shape as x"
+        raise ValueError(msg)
 
 
 # -- mask helpers -------------------------------------------------------------
@@ -462,7 +588,8 @@ def _prepare_sparse_with_optional_mask(
             if x_probe is not None and sp.issparse(x_probe)
             else x_probe
         )
-        return x_data_out, x_probe_out, mask, None
+        mask_probe = _probe_mask(x_probe_out) if x_probe_out is not None else None
+        return x_data_out, x_probe_out, mask, mask_probe
 
     return _build_masks_sparse(x_data, x_probe, compat_mode)
 
@@ -488,6 +615,7 @@ def _prepare_dense_with_mask_override(
     mask_probe: Matrix | None = None
     if x_probe is not None:
         x_probe_arr = np.asarray(x_probe, dtype=float)
+        mask_probe = ~np.isnan(x_probe_arr)
         zero_mask_probe = np.isclose(x_probe_arr, 0.0)
         x_probe_arr[zero_mask_probe] = eps
         x_probe_arr[np.isnan(x_probe_arr)] = 0.0
