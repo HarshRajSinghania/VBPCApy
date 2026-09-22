@@ -3,6 +3,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 import vbpca_py.model_selection as ms
+from vbpca_py import VBPCA
 from vbpca_py.model_selection import (
     CVConfig,
     SelectionConfig,
@@ -167,6 +168,38 @@ def test_ensure_metric_opts_falls_back_to_default_probe_fraction() -> None:
     xprobe = np.asarray(fit_opts["xprobe"])
     n_probe = int(np.sum(~np.isnan(xprobe)))
     assert n_probe == pytest.approx(x.size * ms._PROBE_FRACTION, rel=0.1)
+
+
+def test_single_candidate_selection_matches_direct_fit_with_probe() -> None:
+    """A prepared selection probe is reused exactly once with the caller's seed."""
+    x = np.random.default_rng(9).normal(size=(8, 12))
+    opts = {
+        "maxiters": 5,
+        "random_state": 42,
+        "xprobe_fraction": 0.1,
+        "rotate2pca": 0,
+        "cfstop": ms._CFSTOP_DEFAULT.copy(),
+    }
+    config = SelectionConfig(
+        metric="cost",
+        compute_explained_variance=False,
+        return_best_model=True,
+    )
+
+    best_k, _, _, selected = select_n_components(
+        x,
+        components=[1],
+        config=config,
+        **opts,
+    )
+    direct = VBPCA(1, **opts).fit(x)
+
+    assert best_k == 1
+    assert selected is not None
+    assert_allclose(selected.components_, direct.components_)
+    assert_allclose(selected.scores_, direct.scores_)
+    assert selected.rms_ == pytest.approx(direct.rms_)
+    assert selected.noise_variance_ == pytest.approx(direct.noise_variance_)
 
 
 def test_select_n_components_normalizes_component_candidates() -> None:
