@@ -55,6 +55,12 @@ stop, so choosing the objective does not change when candidate fits terminate.
 Partitions the *observed entries* (not full rows) into folds, fits on each
 training fold, and evaluates on the held-out fold.
 
+Cross-validation currently accepts dense matrices only. It uses held-out probe
+RMS (`"prms"`) as its selection objective; variational cost is still reported
+as a training diagnostic but is not presented as a held-out CV metric. Fold
+construction preserves at least one training observation in every non-empty
+row and column.
+
 ```python
 from vbpca_py import cross_validate_components, CVConfig
 
@@ -69,9 +75,9 @@ best_k, results = cross_validate_components(
 | Field | Default | Description |
 |-------|---------|-------------|
 | `n_splits` | `5` | Number of CV folds |
-| `metric` | `"prms"` | Metric to evaluate on held-out entries |
+| `metric` | `"prms"` | Held-out probe RMS (the only supported CV objective) |
 | `one_se_rule` | `True` | Select the simplest model within 1 SE of the best |
-| `seed` | `0` | Random seed for fold assignment |
+| `seed` | `0` | Random seed for fold assignment and candidate fits |
 
 ### 1-SE rule
 

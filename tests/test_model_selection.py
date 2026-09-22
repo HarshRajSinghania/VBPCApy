@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import scipy.sparse as sp
 from numpy.testing import assert_allclose
 
 import vbpca_py.model_selection as ms
@@ -818,26 +819,15 @@ def test_cross_validate_components_basic() -> None:
                 assert f"{m}_fold_{fold_i + 1}" in entry
 
 
-def test_cross_validate_components_cost_metric() -> None:
-    """CV works with metric='cost'."""
+def test_cross_validate_components_rejects_training_cost_metric() -> None:
+    """Training cost is not mislabeled as a held-out CV metric."""
     rng = np.random.default_rng(7)
     x = _low_rank_data(rng, n_features=5, n_samples=20, rank=1)
+    cv_cfg = CVConfig(n_splits=2, one_se_rule=False, seed=1)
+    cv_cfg.metric = "cost"  # type: ignore[assignment]
 
-    cv_cfg = CVConfig(metric="cost", n_splits=2, one_se_rule=False, seed=1)
-
-    best_k, cv_results = cross_validate_components(
-        x,
-        components=[1, 2],
-        config=cv_cfg,
-        maxiters=30,
-        verbose=0,
-    )
-
-    assert best_k in {1, 2}
-    assert len(cv_results) == 2
-    # Mean cost should be finite.
-    for entry in cv_results:
-        assert np.isfinite(entry["mean_cost"])
+    with pytest.raises(ValueError, match="cost is a training objective"):
+        cross_validate_components(x, components=[1, 2], config=cv_cfg)
 
 
 def test_cross_validate_components_all_metrics_recorded() -> None:
@@ -874,6 +864,66 @@ def test_cross_validate_components_invalid_splits() -> None:
             config=CVConfig(n_splits=1),
             maxiters=10,
         )
+
+
+def test_cross_validate_components_rejects_more_folds_than_observations() -> None:
+    x = np.array([[1.0, np.nan], [np.nan, 2.0]])
+
+    with pytest.raises(ValueError, match="exceeds the 2 observed entries"):
+        cross_validate_components(
+            x,
+            components=[1],
+            config=CVConfig(n_splits=3),
+        )
+
+
+def test_cross_validate_components_rejects_sparse_input() -> None:
+    x = sp.csr_matrix(np.ones((4, 6), dtype=float))
+
+    with pytest.raises(ValueError, match="supports dense input only"):
+        cross_validate_components(x, components=[1], config=CVConfig(n_splits=2))
+
+
+def test_cross_validate_components_rejects_uncoverable_rows_or_columns() -> None:
+    x = np.array([[1.0, np.nan], [np.nan, 2.0]])
+
+    with pytest.raises(ValueError, match="at least two observed entries"):
+        cross_validate_components(
+            x,
+            components=[1],
+            config=CVConfig(n_splits=2),
+        )
+
+
+def test_element_folds_preserve_training_row_and_column_coverage() -> None:
+    x = np.arange(30, dtype=float).reshape(5, 6)
+    x[[0, 1, 2], [0, 2, 4]] = np.nan
+    obs_rows, obs_cols = np.nonzero(~np.isnan(x))
+
+    folds = ms._make_element_folds(x, 3, np.random.default_rng(144))
+
+    for probe_sel, _train_sel in folds:
+        train = x.copy()
+        train[obs_rows[probe_sel], obs_cols[probe_sel]] = np.nan
+        assert np.all(np.sum(~np.isnan(train), axis=1) > 0)
+        assert np.all(np.sum(~np.isnan(train), axis=0) > 0)
+
+
+def test_cross_validate_components_seed_reproduces_folds_and_fits() -> None:
+    x = _low_rank_data(np.random.default_rng(144), n_features=5, n_samples=12, rank=2)
+    cfg = CVConfig(n_splits=2, seed=144)
+    kwargs = {
+        "components": [1, 2],
+        "config": cfg,
+        "maxiters": 5,
+        "verbose": 0,
+        "rotate2pca": 0,
+    }
+
+    first = cross_validate_components(x, **kwargs)
+    second = cross_validate_components(x, **kwargs)
+
+    assert first == second
 
 
 def test_cross_validate_components_one_se_vs_global_min() -> None:

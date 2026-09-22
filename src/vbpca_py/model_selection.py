@@ -34,6 +34,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 _Metric = Literal["rms", "prms", "cost"]
+_CVMetric = Literal["prms"]
 _AllowedFloat = (
     SupportsFloat
     | SupportsIndex
@@ -570,14 +571,14 @@ class CVConfig:
     """Configuration for K-fold cross-validated component selection.
 
     Attributes:
-        metric: Selection metric (``"prms"`` or ``"cost"``).
+        metric: Held-out selection metric. Only ``"prms"`` is supported.
         n_splits: Number of cross-validation folds.
         one_se_rule: If ``True``, select the smallest *k* whose mean metric
             is within one standard error of the global minimum.
         seed: Random seed for fold partitioning and model fitting.
     """
 
-    metric: _Metric = "prms"
+    metric: _CVMetric = "prms"
     n_splits: int = 5
     one_se_rule: bool = True
     seed: int = 0
@@ -600,23 +601,70 @@ def _make_element_folds(
         List of ``(probe_indices, train_indices)`` tuples where each
         element is a 1-D array of flat indices into the observed-entry
         array.
-    """
-    obs_rows, _obs_cols = np.nonzero(~np.isnan(x))
-    n_obs = len(obs_rows)
-    perm = rng.permutation(n_obs)
 
-    fold_size = n_obs // n_splits
-    folds: list[tuple[np.ndarray, np.ndarray]] = []
-    for i in range(n_splits):
-        start = i * fold_size
-        end = (i + 1) * fold_size if i < n_splits - 1 else n_obs
-        test_sel = perm[start:end]
-        train_sel = np.concatenate([perm[:start], perm[end:]])
-        folds.append((
-            test_sel,
-            train_sel,
-        ))
-    return folds
+    Raises:
+        ValueError: If there are too few observations or valid folds cannot
+            preserve training coverage in every non-empty row and column.
+    """
+    observed = ~np.isnan(x)
+    obs_rows, obs_cols = np.nonzero(observed)
+    n_obs = len(obs_rows)
+    if n_obs < n_splits:
+        msg = f"n_splits={n_splits} exceeds the {n_obs} observed entries"
+        raise ValueError(msg)
+
+    row_counts = np.bincount(obs_rows, minlength=x.shape[0])
+    col_counts = np.bincount(obs_cols, minlength=x.shape[1])
+    if np.any((row_counts > 0) & (row_counts < 2)) or np.any(
+        (col_counts > 0) & (col_counts < 2)
+    ):
+        msg = (
+            "entry-wise CV requires at least two observed entries in every "
+            "non-empty row and column so each training fold retains coverage"
+        )
+        raise ValueError(msg)
+
+    for _ in range(256):
+        perm = rng.permutation(n_obs)
+        probe_folds = [
+            np.asarray(part, dtype=int) for part in np.array_split(perm, n_splits)
+        ]
+        if all(
+            _fold_preserves_training_coverage(
+                probe_sel,
+                obs_rows,
+                obs_cols,
+                row_counts,
+                col_counts,
+            )
+            for probe_sel in probe_folds
+        ):
+            return [
+                (probe_sel, np.setdiff1d(perm, probe_sel, assume_unique=True))
+                for probe_sel in probe_folds
+            ]
+
+    msg = (
+        "could not construct entry-wise folds that preserve at least one "
+        "training observation in every non-empty row and column"
+    )
+    raise ValueError(msg)
+
+
+def _fold_preserves_training_coverage(
+    probe_sel: np.ndarray,
+    obs_rows: np.ndarray,
+    obs_cols: np.ndarray,
+    row_counts: np.ndarray,
+    col_counts: np.ndarray,
+) -> bool:
+    """Return whether one holdout leaves every observed row and column covered."""
+    heldout_rows = np.bincount(obs_rows[probe_sel], minlength=len(row_counts))
+    heldout_cols = np.bincount(obs_cols[probe_sel], minlength=len(col_counts))
+    return bool(
+        np.all(heldout_rows[row_counts > 0] < row_counts[row_counts > 0])
+        and np.all(heldout_cols[col_counts > 0] < col_counts[col_counts > 0])
+    )
 
 
 _TRACKED_METRICS: tuple[str, ...] = ("rms", "prms", "cost")
@@ -631,8 +679,9 @@ def _run_fold(  # noqa: PLR0913
     probe_sel: np.ndarray,
     *,
     k_list: list[int],
-    metric: _Metric,
+    metric: _CVMetric,
     opts: dict[str, object],
+    seed: int,
     n_splits: int = 1,
     verbose: int = 0,
 ) -> dict[int, dict[str, float]]:
@@ -646,8 +695,9 @@ def _run_fold(  # noqa: PLR0913
         probe_sel: Indices into ``obs_rows``/``obs_cols`` for this fold's
             held-out probe entries.
         k_list: Candidate component counts to evaluate.
-        metric: ``"prms"`` or ``"cost"``.
+        metric: Held-out probe RMS (``"prms"``).
         opts: Options forwarded to ``select_n_components``.
+        seed: Base seed used to derive a deterministic seed for this fold.
         n_splits: Total number of folds (for log messages).
         verbose: Verbosity level.
 
@@ -667,6 +717,7 @@ def _run_fold(  # noqa: PLR0913
 
     fold_opts = dict(opts)
     fold_opts["xprobe"] = xprobe
+    fold_opts["random_state"] = seed + fold_i
 
     _best_k, _best_metrics, trace, _model = select_n_components(
         x_fold,
@@ -692,7 +743,7 @@ def _run_fold(  # noqa: PLR0913
 def _aggregate_cv_results(
     k_list: list[int],
     fold_metrics: list[dict[int, dict[str, float]]],
-    selection_metric: _Metric,
+    selection_metric: _CVMetric,
 ) -> tuple[int, list[dict[str, object]]]:
     """Aggregate fold metrics and select *k* via the 1-SE rule.
 
@@ -763,8 +814,7 @@ def cross_validate_components(
     criteria without re-running.
 
     Args:
-        x: Data matrix (dense or sparse), shape
-            ``(n_features, n_samples)``.
+        x: Dense data matrix with shape ``(n_features, n_samples)``.
         mask: Optional boolean mask with the same shape as ``x``.
         components: Candidate component counts.  Defaults to
             ``1 .. min(n_features, n_samples)``.
@@ -782,8 +832,9 @@ def cross_validate_components(
           and ``<m>_fold_<i>`` per-fold values.
 
     Raises:
-        ValueError: If ``metric`` is invalid, no valid ``components``
-            are provided, or ``n_splits < 2``.
+        ValueError: If the input is sparse, ``metric`` is not ``"prms"``, no
+            valid ``components`` are provided, folds cannot preserve row and
+            column coverage, or ``n_splits < 2``.
 
     Example:
         >>> best_k, cv = cross_validate_components(
@@ -792,21 +843,33 @@ def cross_validate_components(
     """
     cv_cfg = config or CVConfig()
 
-    if cv_cfg.metric not in {"prms", "cost"}:
-        msg = f"metric must be one of prms, cost (got {cv_cfg.metric!r})"
+    if cv_cfg.metric != "prms":
+        msg = (
+            "cross-validation metric must be 'prms'; cost is a training "
+            "objective, not a held-out fold metric"
+        )
         raise ValueError(msg)
     if cv_cfg.n_splits < 2:
         msg = f"n_splits must be >= 2 (got {cv_cfg.n_splits})"
         raise ValueError(msg)
 
-    # Materialize dense array (sparse support for fold creation is future work).
-    x_arr: np.ndarray = (
-        np.asarray(x.toarray(), dtype=float)
-        if sp.issparse(x)
-        else np.array(x, dtype=float)
-    )
+    if sp.issparse(x):
+        msg = (
+            "cross_validate_components currently supports dense input only; "
+            "sparse input would lose structural missingness when materialized"
+        )
+        raise ValueError(msg)
+    if mask is not None and sp.issparse(mask):
+        msg = "mask must be dense when cross-validation input is dense"
+        raise ValueError(msg)
+
+    x_arr = np.array(x, dtype=float)
     if mask is not None:
-        x_arr[~np.asarray(mask, dtype=bool)] = np.nan
+        mask_arr = np.asarray(mask, dtype=bool)
+        if mask_arr.shape != x_arr.shape:
+            msg = "mask must have the same shape as x"
+            raise ValueError(msg)
+        x_arr[~mask_arr] = np.nan
 
     k_list = _normalize_components(components, x_arr.shape[0], x_arr.shape[1])
     obs_rows, obs_cols = np.nonzero(~np.isnan(x_arr))
@@ -833,6 +896,7 @@ def cross_validate_components(
             k_list=k_list,
             metric=cv_cfg.metric,
             opts=fit_opts,
+            seed=cv_cfg.seed,
             n_splits=cv_cfg.n_splits,
             verbose=verbose_level,
         )

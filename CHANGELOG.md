@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `random_state` constructor kwarg on `VBPCA`: seeds parameter initialization and any auto-generated xprobe mask (`int`, `np.random.Generator`, or `None`, following the sklearn convention). Surfaced via `get_params()`/`set_params()`/`get_options()` (#109).
 
 ### Fixed
+- Cross-validation now seeds both fold assignment and candidate fits, rejects
+  folds that would empty a training row or column, validates small observation
+  counts, and refuses to densify sparse inputs silently (#144).
 - Component selection now evaluates the requested metric exactly, records cost
   without silently enabling cost-based convergence, and stops after exactly
   the configured number of consecutive non-improving candidates (#140).
@@ -24,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `select_n_components()` now passes its prepared probe mask explicitly into each candidate fit and seeds that mask from the caller's `random_state`. This prevents a second, differently seeded holdout inside `VBPCA.fit()` and makes a one-candidate sweep match the corresponding direct fit (#130).
 
 ### Changed
+- `cross_validate_components()` now accepts held-out probe RMS (`"prms"`) as
+  its sole selection objective. Variational cost remains available in returned
+  diagnostics but is no longer mislabeled as a held-out CV metric (#144).
 - The inert `VBPCA(tol=...)` compatibility parameter is deprecated and warns
   on `fit()`. Configure `rmsstop`, `cfstop_rel`, or `minangle` explicitly
   instead (#140).
