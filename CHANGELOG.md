@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Warmup/cap warnings now use resolved options, so an explicit `maxiters` that
   is no larger than the default `niter_broadprior` can no longer fail silently
   (#133).
+- Convergence plateaus and relative-change rules now reject worsening RMS or
+  variational-free-energy trajectories. Curvature stopping additionally
+  requires a small first-order slope, so constant steep improvement cannot be
+  mistaken for convergence (#141).
+- Probe early stopping now restores the model state with the lowest observed
+  probe RMS and exposes its iteration and metric. Cost plateau, relative, and
+  curvature rules also record separate diagnostic traces (#141).
 - Cross-validation now seeds both fold assignment and candidate fits, rejects
   folds that would empty a training row or column, validates small observation
   counts, and refuses to densify sparse inputs silently (#144).

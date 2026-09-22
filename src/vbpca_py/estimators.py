@@ -116,6 +116,9 @@ class VBPCA(BaseEstimator):
         self.n_iter_: int | None = None
         self.convergence_reason_: str | None = None
         self.converged_: bool | None = None
+        self.best_probe_iteration_: int | None = None
+        self.best_probe_rms_: float | None = None
+        self.returned_iteration_: int | None = None
         self.learning_curve_: dict[str, list[float]] | None = None
         self.reconstruction_: np.ndarray | None = None
         # Posterior variance of the denoised reconstruction E[AS + mu]:
@@ -350,11 +353,32 @@ class VBPCA(BaseEstimator):
                 "earlystop",
                 "slowing_down",
             }
+            best_probe_iteration = lc.get("best_probe_iteration")
+            self.best_probe_iteration_ = (
+                int(best_probe_iteration)
+                if isinstance(best_probe_iteration, (int, np.integer))
+                else None
+            )
+            best_probe_rms = lc.get("best_probe_rms")
+            self.best_probe_rms_ = (
+                float(best_probe_rms)
+                if isinstance(best_probe_rms, (float, int, np.floating, np.integer))
+                else None
+            )
+            returned_iteration = lc.get("returned_iteration")
+            self.returned_iteration_ = (
+                int(returned_iteration)
+                if isinstance(returned_iteration, (int, np.integer))
+                else None
+            )
             self.learning_curve_ = lc
         else:
             self.n_iter_ = 0
             self.convergence_reason_ = "maxiters"
             self.converged_ = False
+            self.best_probe_iteration_ = None
+            self.best_probe_rms_ = None
+            self.returned_iteration_ = None
             self.learning_curve_ = None
 
         self.reconstruction_ = None

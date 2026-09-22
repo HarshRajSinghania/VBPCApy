@@ -171,7 +171,10 @@ def _plateau_stop(
     older = series[-window - 1]
     newer = series[-1]
 
-    if not (np.isfinite(older) and np.isfinite(newer)):
+    # RMS and variational free energy (negative ELBO) are both minimised.
+    # A small worsening is not evidence of convergence, even when its absolute
+    # magnitude falls within the configured plateau tolerance.
+    if not (np.isfinite(older) and np.isfinite(newer)) or newer > older:
         return None
 
     delta = abs(older - newer)
@@ -190,10 +193,10 @@ def _relative_elbo_stop(
     cost: np.ndarray,
     threshold: float | None,
 ) -> str | None:
-    """Return a message if relative ELBO decrease is below *threshold*.
+    """Return a message if relative free-energy improvement is below threshold.
 
-    Checks ``|ELBO[t] - ELBO[t-1]| / |ELBO[t]| < threshold``.  This is
-    scale-invariant and more robust than an absolute plateau check.
+    The recorded cost is variational free energy (negative ELBO), so lower is
+    better. A worsening step never satisfies the criterion.
 
     Returns:
         A human-readable stop message, or ``None``.
@@ -203,6 +206,9 @@ def _relative_elbo_stop(
 
     curr, prev = cost[-1], cost[-2]
     if not (np.isfinite(curr) and np.isfinite(prev)):
+        return None
+
+    if curr > prev:
         return None
 
     rel_change = abs(curr - prev) / (abs(curr) + np.finfo(float).eps)
@@ -218,10 +224,13 @@ def _elbo_curvature_stop(
     cost: np.ndarray,
     threshold: float | None,
 ) -> str | None:
-    """Return a message if ELBO curvature (2nd difference) is below *threshold*.
+    """Return a message if free-energy slope and curvature are both small.
 
-    Checks ``|ΔELBO[t] - ΔELBO[t-1]| < threshold``, i.e. whether the
-    *rate of improvement* has itself stabilised.
+    The recorded cost is variational free energy (negative ELBO), so lower is
+    better. Curvature alone is insufficient: a constant, steep descent has
+    zero curvature but is not converged. This criterion therefore requires a
+    non-worsening current step and both ``|Δcost[t]|`` and
+    ``|Δcost[t] - Δcost[t-1]|`` below *threshold*.
 
     Returns:
         A human-readable stop message, or ``None``.
@@ -235,10 +244,14 @@ def _elbo_curvature_stop(
     if not (np.isfinite(d1) and np.isfinite(d0)):
         return None
 
+    if d1 > 0 or abs(d1) >= threshold:
+        return None
+
     curvature = abs(d1 - d0)
     if curvature < threshold:
         return (
-            f"Stop: ELBO curvature {curvature:.3e} "
+            f"Stop: free-energy slope {abs(d1):.3e} and curvature "
+            f"{curvature:.3e} "
             f"is below cfstop_curv = {threshold:.3e}."
         )
     return None
@@ -276,28 +289,46 @@ def _cost_criteria_tagged(
     Returns:
         ``(reason_tag, message)`` or ``(None, None)`` when nothing fires.
     """
-    # Cost plateau
-    cfstop = opts.get("cfstop")
-    if cost.size >= 2 and cfstop is not None:
-        plateau_msg = _plateau_stop(cost, cfstop, "cost")
-        if plateau_msg:
-            return "cost_plateau", plateau_msg
-
-    # Relative ELBO decrease
-    cfstop_rel = opts.get("cfstop_rel")
-    if cfstop_rel is not None:
-        rel_msg = _relative_elbo_stop(cost, float(cfstop_rel))
-        if rel_msg:
-            return "cfstop_rel", rel_msg
-
-    # ELBO curvature (2nd difference)
-    cfstop_curv = opts.get("cfstop_curv")
-    if cfstop_curv is not None:
-        curv_msg = _elbo_curvature_stop(cost, float(cfstop_curv))
-        if curv_msg:
-            return "cfstop_curv", curv_msg
-
+    checks = _cost_subcriteria(opts, cost)
+    for tag in ("cost_plateau", "cfstop_rel", "cfstop_curv"):
+        msg = checks[tag]
+        if msg:
+            return tag, msg
     return None, None
+
+
+def _cost_subcriteria(
+    opts: Mapping[str, Any],
+    cost: np.ndarray,
+) -> dict[str, str | None]:
+    """Evaluate every cost subcriterion without applying winner priority.
+
+    Returns:
+        Mapping from public reason tag to its message or ``None``.
+    """
+    cfstop = opts.get("cfstop")
+    plateau_msg = (
+        _plateau_stop(cost, cfstop, "cost")
+        if cost.size >= 2 and cfstop is not None
+        else None
+    )
+
+    cfstop_rel = opts.get("cfstop_rel")
+    rel_msg = (
+        _relative_elbo_stop(cost, float(cfstop_rel)) if cfstop_rel is not None else None
+    )
+
+    cfstop_curv = opts.get("cfstop_curv")
+    curv_msg = (
+        _elbo_curvature_stop(cost, float(cfstop_curv))
+        if cfstop_curv is not None
+        else None
+    )
+    return {
+        "cost_plateau": plateau_msg,
+        "cfstop_rel": rel_msg,
+        "cfstop_curv": curv_msg,
+    }
 
 
 def _check_sub_criterion(
@@ -348,6 +379,8 @@ def _rel_change_check(
         return None
     curr, prev = series[-1], series[-2]
     if not (np.isfinite(curr) and np.isfinite(prev)):
+        return None
+    if curr > prev:
         return None
     rel = abs(curr - prev) / (abs(curr) + eps)
     if rel >= threshold:
@@ -437,6 +470,20 @@ def _apply_criterion_patience(
     return "", ""
 
 
+def _append_cost_diagnostics(
+    lc: Mapping[str, Sequence[float]],
+    checks: Mapping[str, str | None],
+) -> None:
+    """Append independent raw-satisfaction traces for each cost rule."""
+    mutable_lc = cast("dict[str, Any]", lc)
+    history_size = max(0, len(lc.get("rms", [])) - 1)
+    for tag, message in checks.items():
+        history_obj = mutable_lc.setdefault(
+            f"criterion_satisfied_{tag}", [0.0] * history_size
+        )
+        cast("list[float]", history_obj).append(float(bool(message)))
+
+
 # ---------------------------------------------------------------------------
 # Public convergence check
 # ---------------------------------------------------------------------------
@@ -473,6 +520,14 @@ def convergence_check(
     rmsstop = opts.get("rmsstop")
     composite_cfg = opts.get("composite_stop")
 
+    cost_subcriteria = _cost_subcriteria(opts, cost)
+    cost_check: tuple[str | None, str | None] = (None, None)
+    for tag in ("cost_plateau", "cfstop_rel", "cfstop_curv"):
+        message = cost_subcriteria[tag]
+        if message:
+            cost_check = tag, message
+            break
+
     # Build the full check registry — always evaluate all criteria.
     all_checks: dict[str, tuple[str | None, str | None]] = {
         "angle": ("angle", _angle_stop_message(opts, angle_a)),
@@ -483,7 +538,7 @@ def convergence_check(
             if rms.size >= 2 and rmsstop is not None
             else None,
         ),
-        "cost": _cost_criteria_tagged(opts, cost),
+        "cost": cost_check,
         "composite": (
             "composite",
             _composite_stop(composite_cfg, angle_a, rms, cost)
@@ -496,6 +551,10 @@ def convergence_check(
     # Determine ordering and enablement.
     order = opts.get("criterion_order") or DEFAULT_CRITERION_ORDER
     enabled: dict[str, bool] = opts.get("convergence_criteria") or {}
+
+    # Preserve each cost rule independently in addition to the aggregate
+    # ``criterion_satisfied_cost`` trace used by the public criterion order.
+    _append_cost_diagnostics(lc, cost_subcriteria)
 
     patience_val = opts.get("patience")
     patience = int(patience_val) if patience_val is not None else 1

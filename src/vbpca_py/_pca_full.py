@@ -258,6 +258,16 @@ class TrainingState:
     runtime_report: dict[str, object] | None
 
 
+@dataclass
+class _ProbeBestState:
+    """Best validation state observed during a probe-monitored fit."""
+
+    rms: float
+    iteration: int
+    model: ModelState | None
+    restore: bool
+
+
 @dataclass(frozen=True)
 class FinalState:
     """Final objects after shape restoration, ready for packing."""
@@ -1229,6 +1239,7 @@ def _run_training_loop(
     )
 
     maxiters_int = _int_opt(opts.get("maxiters", 0))
+    probe_best = _initial_probe_best(training, opts)
 
     for iteration in range(1, maxiters_int + 1):
         ctx = IterationContext(
@@ -1240,6 +1251,8 @@ def _run_training_loop(
             cfg=cfg,
         )
         _iteration_step(ctx)
+
+        _update_probe_best(probe_best, training, iteration)
 
         # Stopping condition is recorded by _iteration_step in lc/convmsg.
         if training.lc.get("_stop", [0.0])[-1]:
@@ -1255,7 +1268,88 @@ def _run_training_loop(
     reason: str = str(training.lc.pop("_convergence_reason", "maxiters"))
     training.lc["convergence_reason"] = reason  # type: ignore[assignment]
 
+    _finalize_probe_best(training, probe_best, reason)
+
     return training
+
+
+def _copy_model_state(model: ModelState) -> ModelState:
+    """Return an independent snapshot suitable for probe-state restoration."""
+
+    def copy_covariances(store: CovarianceStore) -> CovarianceStore:
+        if isinstance(store, np.ndarray):
+            return store.copy()
+        return [np.asarray(value).copy() for value in store]
+
+    return ModelState(
+        a=model.a.copy(),
+        s=model.s.copy(),
+        mu=model.mu.copy(),
+        noise_var=float(model.noise_var),
+        av=copy_covariances(model.av),
+        sv=copy_covariances(model.sv),
+        muv=model.muv.copy(),
+        va=model.va.copy(),
+        vmu=float(model.vmu),
+    )
+
+
+def _initial_probe_best(
+    training: TrainingState,
+    opts: Mapping[str, object],
+) -> _ProbeBestState:
+    """Create probe tracking state from the initialization endpoint.
+
+    Returns:
+        Initialized best-probe metadata and optional model snapshot.
+    """
+    initial_rms = float(training.lc.get("prms", [float("nan")])[-1])
+    restore = bool(opts.get("earlystop"))
+    snapshot = (
+        _copy_model_state(training.model)
+        if restore and np.isfinite(initial_rms)
+        else None
+    )
+    return _ProbeBestState(
+        rms=initial_rms,
+        iteration=0,
+        model=snapshot,
+        restore=restore,
+    )
+
+
+def _update_probe_best(
+    best: _ProbeBestState,
+    training: TrainingState,
+    iteration: int,
+) -> None:
+    """Update probe metadata and, when enabled, the restorable snapshot."""
+    current = float(training.lc.get("prms", [float("nan")])[-1])
+    if not np.isfinite(current) or (np.isfinite(best.rms) and current >= best.rms):
+        return
+    best.rms = current
+    best.iteration = iteration
+    if best.restore:
+        best.model = _copy_model_state(training.model)
+
+
+def _finalize_probe_best(
+    training: TrainingState,
+    best: _ProbeBestState,
+    reason: str,
+) -> None:
+    """Restore the best probe state when early stopping ended the fit."""
+    terminal = max(0, len(training.lc.get("rms", [])) - 1)
+    returned = terminal
+    if reason == "earlystop" and best.model is not None:
+        training.model = best.model
+        returned = best.iteration
+
+    training.lc["terminal_iteration"] = terminal  # type: ignore[assignment]
+    training.lc["returned_iteration"] = returned  # type: ignore[assignment]
+    if np.isfinite(best.rms):
+        training.lc["best_probe_iteration"] = best.iteration  # type: ignore[assignment]
+        training.lc["best_probe_rms"] = best.rms  # type: ignore[assignment]
 
 
 def _ensure_phase_timing_keys(lc: dict[str, list[float]]) -> None:
@@ -1876,6 +1970,18 @@ def _last_metric(lc: dict[str, list[float]], key: str) -> float:
         return float("nan")
 
 
+def _returned_metric(lc: dict[str, list[float]], key: str) -> float:
+    """Return a metric aligned with the model state returned to the caller."""
+    values = lc.get(key, [])
+    returned = lc.get("returned_iteration")
+    if isinstance(returned, int) and 0 <= returned < len(values):
+        try:
+            return float(values[returned])
+        except (TypeError, ValueError):
+            return float("nan")
+    return _last_metric(lc, key)
+
+
 def _pack_result(
     final: FinalState,
     *,
@@ -1927,9 +2033,12 @@ def _pack_result(
         "Vpred": vr_pred,
         "ExplainedVar": ev,
         "ExplainedVarRatio": evr,
-        "RMS": _last_metric(lc, "rms"),
-        "PRMS": _last_metric(lc, "prms"),
-        "Cost": _last_metric(lc, "cost"),
+        "RMS": _returned_metric(lc, "rms"),
+        "PRMS": _returned_metric(lc, "prms"),
+        "Cost": _returned_metric(lc, "cost"),
+        "BestProbeIteration": lc.get("best_probe_iteration"),
+        "BestProbeRMS": lc.get("best_probe_rms"),
+        "ReturnedIteration": lc.get("returned_iteration"),
         "cv": {
             "A": final.av,
             "S": final.sv,

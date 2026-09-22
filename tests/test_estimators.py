@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import scipy.sparse as sp
 
+from vbpca_py import make_xprobe_mask
 from vbpca_py.estimators import VBPCA
 
 
@@ -233,14 +234,30 @@ def test_hp_params_affect_fit() -> None:
     rng = np.random.default_rng(42)
     x = rng.standard_normal((6, 8))
 
-    m_default = VBPCA(n_components=2, maxiters=30, verbose=0)
+    m_default = VBPCA(
+        n_components=2,
+        maxiters=30,
+        verbose=0,
+        random_state=42,
+    )
     m_default.fit(x)
 
-    m_strong = VBPCA(n_components=2, maxiters=30, verbose=0, hp_v=10.0)
+    m_strong = VBPCA(
+        n_components=2,
+        maxiters=30,
+        verbose=0,
+        hp_v=10.0,
+        random_state=42,
+    )
     m_strong.fit(x)
 
-    assert m_default.noise_variance_ != pytest.approx(
-        m_strong.noise_variance_, rel=1e-3
+    assert m_default.noise_variance_ is not None
+    assert m_strong.noise_variance_ is not None
+    assert not np.isclose(
+        m_default.noise_variance_,
+        m_strong.noise_variance_,
+        rtol=1e-5,
+        atol=1e-8,
     )
 
 
@@ -617,12 +634,52 @@ def test_warmup_does_not_satisfy_post_warmup_patience() -> None:
     assert model.converged_ is True
 
 
+def test_probe_earlystop_restores_best_observed_state() -> None:
+    """Returned factors and metrics correspond to the lowest probe RMS."""
+    rng = np.random.default_rng(0)
+    loadings = rng.normal(size=(12, 2))
+    scores = rng.normal(size=(2, 20))
+    x = loadings @ scores + 0.5 * rng.normal(size=(12, 20))
+    x_train, x_probe = make_xprobe_mask(
+        x,
+        fraction=0.2,
+        rng=np.random.default_rng(0),
+    )
+    model = VBPCA(
+        n_components=5,
+        maxiters=50,
+        niter_broadprior=0,
+        earlystop=True,
+        minangle=0,
+        rmsstop=None,
+        random_state=0,
+    ).fit(x_train, xprobe=x_probe)
+
+    assert model.convergence_reason_ == "earlystop"
+    assert model.best_probe_iteration_ == 0
+    assert model.returned_iteration_ == model.best_probe_iteration_
+    assert model.n_iter_ == 1
+    assert model.learning_curve_ is not None
+    assert model.best_probe_rms_ == pytest.approx(model.learning_curve_["prms"][0])
+    assert model.prms_ == pytest.approx(model.best_probe_rms_)
+    assert model.prms_ < model.learning_curve_["prms"][-1]
+
+    probe_mask = np.isfinite(x_probe)
+    returned_prms = np.sqrt(
+        np.mean((x_probe[probe_mask] - model.inverse_transform()[probe_mask]) ** 2)
+    )
+    assert returned_prms == pytest.approx(model.prms_)
+
+
 def test_diagnostics_none_before_fit() -> None:
     """Diagnostics should be None before fit() is called."""
     model = VBPCA(n_components=2)
     assert model.n_iter_ is None
     assert model.convergence_reason_ is None
     assert model.converged_ is None
+    assert model.best_probe_iteration_ is None
+    assert model.best_probe_rms_ is None
+    assert model.returned_iteration_ is None
     assert model.learning_curve_ is None
 
 
