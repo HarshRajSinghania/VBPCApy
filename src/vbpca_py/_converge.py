@@ -618,7 +618,25 @@ def _angle_for_iteration(state: ConvergenceState) -> tuple[float, float | None]:
         state.lc["angle"].append(float("nan"))
         return float("inf"), None
 
-    angles = subspace_angles(state.loadings, state.loadings_old)
-    angle_a = float(np.max(angles))
+    angle_a = _max_subspace_angle(state.loadings, state.loadings_old)
     state.lc["angle"].append(angle_a)
     return angle_a, angle_a
+
+
+def _max_subspace_angle(loadings: np.ndarray, loadings_old: np.ndarray) -> float:
+    """Return a convergence-safe maximum principal angle.
+
+    SciPy returns no principal angles when either loading matrix has zero
+    columns. Two empty subspaces are stable and therefore have angle zero. A
+    transition to or from an empty subspace is treated as maximally different,
+    preventing angle convergence from firing on the pruning iteration.
+
+    Returns:
+        Maximum principal angle in radians.
+    """
+    angles = subspace_angles(loadings, loadings_old)
+    if angles.size:
+        return float(np.max(angles))
+    if loadings.shape[1] == 0 and loadings_old.shape[1] == 0:
+        return 0.0
+    return float(np.pi / 2.0)
