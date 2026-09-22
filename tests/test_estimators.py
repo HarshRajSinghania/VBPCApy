@@ -473,6 +473,7 @@ def test_convergence_diagnostics_exposed_after_fit() -> None:
 
     assert isinstance(model.convergence_reason_, str)
     assert model.convergence_reason_ != ""
+    assert isinstance(model.converged_, bool)
 
     assert isinstance(model.learning_curve_, dict)
     assert "rms" in model.learning_curve_
@@ -487,6 +488,7 @@ def test_convergence_reason_maxiters() -> None:
     model.fit(x)
 
     assert model.convergence_reason_ == "maxiters"
+    assert model.converged_ is False
     assert model.n_iter_ == 5
 
 
@@ -503,7 +505,48 @@ def test_convergence_reason_angle() -> None:
         "cost_plateau",
         "slowing_down",
     }
+    assert model.converged_ is True
     assert model.n_iter_ < 500
+
+
+def test_warmup_trigger_is_not_reported_as_accepted_stop() -> None:
+    """A criterion suppressed for the entire warmup is not convergence."""
+    rng = np.random.default_rng(42)
+    x = rng.standard_normal((6, 10))
+    model = VBPCA(
+        n_components=2,
+        maxiters=5,
+        niter_broadprior=5,
+        minangle=1e9,
+        rmsstop=None,
+        verbose=0,
+    )
+    with pytest.warns(RuntimeWarning, match="does not exceed niter_broadprior"):
+        model.fit(x)
+
+    assert model.n_iter_ == 5
+    assert model.convergence_reason_ == "maxiters"
+    assert model.converged_ is False
+
+
+def test_warmup_does_not_satisfy_post_warmup_patience() -> None:
+    """Patience begins from zero once convergence stops become eligible."""
+    rng = np.random.default_rng(42)
+    x = rng.standard_normal((6, 10))
+    model = VBPCA(
+        n_components=2,
+        maxiters=10,
+        niter_broadprior=2,
+        minangle=1e9,
+        rmsstop=None,
+        patience=3,
+        verbose=0,
+    )
+    model.fit(x)
+
+    assert model.n_iter_ == 5
+    assert model.convergence_reason_ == "angle"
+    assert model.converged_ is True
 
 
 def test_diagnostics_none_before_fit() -> None:
@@ -511,6 +554,7 @@ def test_diagnostics_none_before_fit() -> None:
     model = VBPCA(n_components=2)
     assert model.n_iter_ is None
     assert model.convergence_reason_ is None
+    assert model.converged_ is None
     assert model.learning_curve_ is None
 
 
