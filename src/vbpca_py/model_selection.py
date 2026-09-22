@@ -143,8 +143,10 @@ def _fit_candidate(
 
     _ = cfg  # keep signature compatibility for injected stubs during tests
 
-    est = VBPCA(k, **cast("dict[str, object]", dict(opts)))  # type: ignore[arg-type]
-    est.fit(x_arr, mask=mask)
+    candidate_opts = dict(opts)
+    xprobe = candidate_opts.pop("xprobe", None)
+    est = VBPCA(k, **candidate_opts)  # type: ignore[arg-type]
+    est.fit(x_arr, mask=mask, xprobe=cast("Matrix | None", xprobe))
 
     rms = _to_float(est.rms_)
     prms = _to_float(est.prms_)
@@ -266,7 +268,7 @@ def _ensure_metric_opts(  # noqa: PLR0914
     x_arr: np.ndarray | sp.csr_matrix,
     mask: Matrix | None,
     cfg: SelectionConfig,
-    seed: int = 0,
+    seed: int | np.random.Generator | None = None,
 ) -> None:
     """Enable VBPCA options required by the chosen selection metric.
 
@@ -540,7 +542,13 @@ def select_n_components(
     fit_opts.setdefault("return_diagnostics", False)
 
     # Enable cfstop / xprobe so that cost and prms metrics are populated.
-    _ensure_metric_opts(fit_opts, x_arr, mask_arg, cfg)
+    _ensure_metric_opts(
+        fit_opts,
+        x_arr,
+        mask_arg,
+        cfg,
+        seed=cast("int | np.random.Generator | None", fit_opts.get("random_state")),
+    )
 
     sweep_inputs = SweepInputs(
         cfg=cfg,
