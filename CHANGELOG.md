@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `random_state` constructor kwarg on `VBPCA`: seeds parameter initialization and any auto-generated xprobe mask (`int`, `np.random.Generator`, or `None`, following the sklearn convention). Surfaced via `get_params()`/`set_params()`/`get_options()` (#109).
 
 ### Fixed
+- Recommendation routing now evaluates both aspect-ratio directions before the
+  absolute feature-count guard, so large-but-tall matrices no longer receive a
+  wide-data configuration. Large balanced matrices have a distinct
+  `large_scale` routing label tied to the single-cell validation regime (#142).
+- Warmup/cap warnings now use resolved options, so an explicit `maxiters` that
+  is no larger than the default `niter_broadprior` can no longer fail silently
+  (#133).
 - Cross-validation now seeds both fold assignment and candidate fits, rejects
   folds that would empty a training row or column, validates small observation
   counts, and refuses to densify sparse inputs silently (#144).

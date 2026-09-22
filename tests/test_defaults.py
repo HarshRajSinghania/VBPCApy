@@ -84,6 +84,18 @@ def test_recommend_config_warns_tall_extreme() -> None:
         recommend_config(n=3000, p=30)
 
 
+def test_large_p_does_not_override_tall_aspect_ratio() -> None:
+    """Tall routing takes precedence over the absolute feature-count guard."""
+    with pytest.warns(UserWarning, match="'tall_moderate'"):
+        recommend_config(n=10_000, p=500)
+
+
+def test_large_balanced_regime_has_distinct_routing_label() -> None:
+    """Large balanced matrices use their single-cell validation bucket."""
+    with pytest.warns(UserWarning, match="'large_scale'"):
+        recommend_config(n=500, p=500)
+
+
 def test_recommend_config_within_validated_region_does_not_warn() -> None:
     """p and p/n within the trade study's grid stay silent."""
     with warnings.catch_warnings():

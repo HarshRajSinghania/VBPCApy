@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Option A extension: extreme aspect-ratio (p/n) regimes (#116).
 
-``recommend_config`` buckets purely on ``p``, with no upper bound and no
-use of ``n`` at all -- the Option A trade study's original regime grid
+The original ``recommend_config`` bucketed purely on ``p``, with no upper bound
+and no use of ``n`` -- the Option A trade study's original regime grid
 (``TRAINING_REGIMES``/``VALIDATION_REGIMES`` in ``_common.py``) only
 covers ``p`` up to 200 and ``p/n`` up to 2.0. Real data commonly falls far
 outside that: genomics data (bulk RNA-seq/microarray, small cohorts with
@@ -59,7 +59,7 @@ Usage
 -----
     python -m analysis.trade_study.option_a_aspect_ratio search --n-trials 20 --n-reps 3
     python -m analysis.trade_study.option_a_aspect_ratio aggregate --buckets wide_tall
-    python -m analysis.trade_study.option_a_aspect_ratio aggregate --buckets extremity
+    python -m analysis.trade_study.option_a_aspect_ratio aggregate --buckets shape
 """
 
 from __future__ import annotations
@@ -153,14 +153,16 @@ def _bucket_wide_tall(name: str, _regime: dict[str, Any]) -> str:
     return "wide" if name in WIDE_REGIMES else "tall"
 
 
-def _bucket_by_extremity(name: str, regime: dict[str, Any]) -> str:
-    """4-bucket grouping: {wide,tall} x {moderate,extreme}.
+def _bucket_by_shape(name: str, regime: dict[str, Any]) -> str:
+    """Five-bucket grouping by direction, extremity, and large scale.
 
     Returns:
         One of ``"wide_moderate"``, ``"wide_extreme"``, ``"tall_moderate"``,
-        ``"tall_extreme"``.
+        ``"tall_extreme"``, or ``"large_scale"``.
     """
     n, p = regime["n"], regime["p"]
+    if name == "single_cell":
+        return "large_scale"
     if name in WIDE_REGIMES:
         return "wide_extreme" if p / n > _WIDE_EXTREME_RATIO else "wide_moderate"
     return "tall_extreme" if n / p > _TALL_EXTREME_RATIO else "tall_moderate"
@@ -168,7 +170,7 @@ def _bucket_by_extremity(name: str, regime: dict[str, Any]) -> str:
 
 _BUCKET_FNS = {
     "wide_tall": _bucket_wide_tall,
-    "extremity": _bucket_by_extremity,
+    "shape": _bucket_by_shape,
 }
 
 

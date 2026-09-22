@@ -20,6 +20,12 @@ effect of the config choice itself from other randomness sources.
 Usage
 -----
     python -m analysis.trade_study.validate_shipped_defaults --n-reps 8
+    python -m analysis.trade_study.validate_shipped_defaults --regime-set routing --n-reps 8
+
+The default ``all`` regime set includes the original training/validation grid
+and the five shape-routing regimes from ``option_a_aspect_ratio``. Use
+``routing`` for the smaller Rockfish job that revalidates only the coarse
+wide, tall, and large-scale buckets after routing changes.
 """
 
 from __future__ import annotations
@@ -31,10 +37,12 @@ from typing import Any
 
 from trade_study import Direction, Observable, run_grid
 
+from vbpca_py import defaults as vbpca_defaults
 from vbpca_py import recommend_config
 
 from ._common import VALIDATION_REGIMES
 from ._world import VBPCAScorer, VBPCASimulator
+from .option_a_aspect_ratio import ALL_REGIMES as ROUTING_REGIMES
 from .option_a_pipeline import TRAINING_REGIMES
 
 RESULTS_DIR = pathlib.Path("analysis/results/optionA")
@@ -49,25 +57,11 @@ OBSERVABLES: list[Observable] = [
 
 CONDITIONS = ("default", "shipped")
 
-# Display-only bucket label, mirroring recommend_config's own documented
-# p-bucketing (p<=30 smallp, p<=70 trans, else large). Not used for
-# behavior -- the "shipped" condition always calls the public
-# recommend_config(n, p) directly.
-_SMALLP_MAX_P = 30
-_TRANS_MAX_P = 70
-
-
-def _bucket_label(p: int) -> str:
-    """Return the display bucket label for ``p`` features.
-
-    Returns:
-        One of "smallp", "trans", "large".
-    """
-    if p <= _SMALLP_MAX_P:
-        return "smallp"
-    if p <= _TRANS_MAX_P:
-        return "trans"
-    return "large"
+REGIME_SETS: dict[str, list[dict[str, Any]]] = {
+    "original": TRAINING_REGIMES + VALIDATION_REGIMES,
+    "routing": list(ROUTING_REGIMES.values()),
+    "all": TRAINING_REGIMES + VALIDATION_REGIMES + list(ROUTING_REGIMES.values()),
+}
 
 
 def _grid_for_condition(
@@ -88,7 +82,7 @@ def _grid_for_condition(
     for idx, regime in enumerate(regimes):
         cfg = dict(regime)
         n, p = int(regime["n"]), int(regime["p"])
-        cfg["_bucket"] = _bucket_label(p)
+        cfg["_bucket"] = vbpca_defaults._bucket(n, p)  # noqa: SLF001
         cfg["seed"] = seed + idx
         if condition == "shipped":
             cfg.update(recommend_config(n=n, p=p))
@@ -96,7 +90,12 @@ def _grid_for_condition(
     return grid
 
 
-def run_validation(n_reps: int = 8, seed: int = 42, n_jobs: int = -1) -> dict[str, Any]:
+def run_validation(
+    n_reps: int = 8,
+    seed: int = 42,
+    n_jobs: int = -1,
+    regime_set: str = "all",
+) -> dict[str, Any]:
     """Run the replicated default-vs-shipped comparison.
 
     Returns:
@@ -104,7 +103,7 @@ def run_validation(n_reps: int = 8, seed: int = 42, n_jobs: int = -1) -> dict[st
         alongside the return value at
         ``analysis/results/optionA/shipped_defaults_validation.json``.
     """
-    regimes = TRAINING_REGIMES + VALIDATION_REGIMES
+    regimes = REGIME_SETS[regime_set]
     world = VBPCASimulator()
     scorer = VBPCAScorer()
 
@@ -142,7 +141,8 @@ def run_validation(n_reps: int = 8, seed: int = 42, n_jobs: int = -1) -> dict[st
         per_condition[condition] = rows
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = RESULTS_DIR / "shipped_defaults_validation.json"
+    suffix = "" if regime_set == "all" else f"_{regime_set}"
+    out = RESULTS_DIR / f"shipped_defaults_validation{suffix}.json"
     out.write_text(json.dumps(per_condition, indent=2))
 
     _print_summary(per_condition)
@@ -169,8 +169,14 @@ def main() -> None:
     parser.add_argument("--n-reps", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-jobs", type=int, default=-1)
+    parser.add_argument("--regime-set", choices=sorted(REGIME_SETS), default="all")
     args = parser.parse_args()
-    run_validation(n_reps=args.n_reps, seed=args.seed, n_jobs=args.n_jobs)
+    run_validation(
+        n_reps=args.n_reps,
+        seed=args.seed,
+        n_jobs=args.n_jobs,
+        regime_set=args.regime_set,
+    )
 
 
 if __name__ == "__main__":

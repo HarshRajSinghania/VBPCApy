@@ -552,7 +552,8 @@ def test_convergence_reason_maxiters() -> None:
     rng = np.random.default_rng(42)
     x = rng.standard_normal((6, 10))
     model = VBPCA(n_components=2, maxiters=5, verbose=0)
-    model.fit(x)
+    with pytest.warns(RuntimeWarning, match="does not exceed niter_broadprior"):
+        model.fit(x)
 
     assert model.convergence_reason_ == "maxiters"
     assert model.converged_ is False

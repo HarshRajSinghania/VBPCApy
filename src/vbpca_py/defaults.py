@@ -32,8 +32,8 @@ config is 28-58% lower than the library default across all three
 p-buckets (smallp 0.34→0.14, trans 1.20→0.74, large 1.44→1.04), at a
 small cost in holdout RMSE (+0.4-3.8%). What remains unvalidated is the
 *attribution* to a specific factor, not whether the shipped bundle helps.
-Recommendations are bucketed by the feature count ``p`` — the study's
-primary axis of rank-recovery difficulty.
+Recommendations use feature count ``p`` inside the original validation grid
+and matrix aspect ratio outside it.
 
 **Validated range (#116) and extreme-aspect-ratio buckets (#120):** the
 dense factorial grid behind ``smallp``/``trans``/``large`` only covers
@@ -42,10 +42,10 @@ direction) — outside that, e.g. small-cohort, thousands-of-features
 genomics data (``p/n`` of 50-1000x) or large-cohort, few-variable
 ecological/survey data (``n/p`` of 20-100x), the "large" bucket's config
 does not transfer (wrong rank recovered entirely, confirmed empirically).
-``recommend_config`` now routes those regimes to one of four additional
+``recommend_config`` now routes those regimes to one of five additional
 buckets (``wide_moderate``/``wide_extreme``/``tall_moderate``/
-``tall_extreme``) derived by adaptive (NSGA-II) search over VBPCA's full
-hyperparameter space at one representative example regime per bucket
+``tall_extreme``/``large_scale``) derived by adaptive (NSGA-II) search over
+VBPCA's full hyperparameter space at one representative example regime per bucket
 (``analysis/trade_study/option_a_aspect_ratio.py``) rather than the dense
 grid the original three buckets were tuned and replicated against — a
 real, validated recommendation for that aspect ratio, just a coarser one
@@ -150,9 +150,7 @@ _BUCKET_CONFIGS: dict[str, dict[str, Any]] = {
         "minangle": 6.967374686269853e-05,
         "cfstop_rel": 0.0006289465573514163,
     },
-    # validated at microbiome (n=50, p=300, p/n=6) and single_cell
-    # (n=500, p=500, p/n=1 -- large in absolute p, not aspect ratio);
-    # both independently converged to this same config during search.
+    # Validated at microbiome (n=50, p=300, p/n=6).
     "wide_moderate": {
         "hp_va": 0.5487383020286924,
         "hp_vb": 0.6918982787407163,
@@ -221,6 +219,12 @@ _BUCKET_CONFIGS: dict[str, dict[str, Any]] = {
     },
 }
 
+# The single-cell regime (n=500, p=500) independently converged to the same
+# configuration as microbiome. Keep a distinct routing label so large balanced
+# data is not incorrectly described as wide and so future retuning can separate
+# the two without another public API change.
+_BUCKET_CONFIGS["large_scale"] = copy.deepcopy(_BUCKET_CONFIGS["wide_moderate"])
+
 _SMALLP_MAX_P = 30
 _TRANS_MAX_P = 70
 
@@ -241,8 +245,8 @@ _TALL_EXTREME_RATIO = 50.0
 
 # Buckets outside the dense, thoroughly-validated smallp/trans/large grid
 # -- recommend_config() warns when it returns one of these (#120).
-_ASPECT_RATIO_BUCKETS = frozenset({
-    "wide_moderate", "wide_extreme", "tall_moderate", "tall_extreme",
+_COARSE_BUCKETS = frozenset({
+    "wide_moderate", "wide_extreme", "tall_moderate", "tall_extreme", "large_scale",
 })  # fmt: skip
 
 
@@ -258,15 +262,17 @@ def _p_only_bucket(p: int) -> str:
 def _bucket(n: int, p: int) -> str:
     """Return the recommendation bucket for an ``(n, p)`` data regime."""
     p_over_n = p / n
+    n_over_p = n / p
     if p_over_n > _WIDE_EXTREME_RATIO:
         return "wide_extreme"
-    if p > _MAX_VALIDATED_P or p_over_n > _MAX_VALIDATED_P_OVER_N:
-        return "wide_moderate"
-    n_over_p = n / p
     if n_over_p > _TALL_EXTREME_RATIO:
         return "tall_extreme"
+    if p_over_n > _MAX_VALIDATED_P_OVER_N:
+        return "wide_moderate"
     if n_over_p > _MAX_VALIDATED_N_OVER_P:
         return "tall_moderate"
+    if p > _MAX_VALIDATED_P:
+        return "large_scale"
     return _p_only_bucket(p)
 
 
@@ -287,7 +293,8 @@ def recommend_config(
             only ``p`` selects the bucket.
         p: Number of features (rows).  Selects the recommendation bucket.
         missingness: Missingness descriptor. **Not currently branched on** —
-            recommendations are bucketed by ``p`` only. The Option A trade
+            recommendations are bucketed by ``n``, ``p``, and their aspect
+            ratio. The Option A trade
             study evaluates missingness as a regime feature, but its example
             recommendations span only 4 missingness categories x 3 p-buckets
             from 23 design points total (some cells have a single point), too
@@ -312,14 +319,15 @@ def recommend_config(
 
     Warns:
         UserWarning: If ``(n, p)`` resolves to a ``wide_moderate``/
-            ``wide_extreme``/``tall_moderate``/``tall_extreme`` bucket
-            rather than ``smallp``/``trans``/``large`` -- those four are
+            ``wide_extreme``/``tall_moderate``/``tall_extreme``/
+            ``large_scale`` bucket rather than ``smallp``/``trans``/``large`` --
+            those five are
             each derived from adaptive search at a single representative
-            example regime (#120: bulk_rnaseq, microbiome + single_cell,
-            ecological, cultural respectively), not the dense factorial
+            example regime (#120: bulk_rnaseq, microbiome, ecological,
+            cultural, and single_cell respectively), not the dense factorial
             grid ``smallp``/``trans``/``large`` were tuned and replicated
             against (#111). Still a real, validated recommendation for
-            that specific aspect ratio -- just a coarser one.
+            that specific matrix shape -- just a coarser one.
     """
     if n <= 0 or p <= 0:
         msg = f"n and p must be positive; got n={n}, p={p}"
@@ -331,18 +339,18 @@ def recommend_config(
         warnings.warn(
             f"recommend_config() does not yet branch on missingness "
             f"(got missingness={missingness!r}); recommendations are "
-            f"bucketed by p only. See "
+            f"bucketed by matrix shape only. See "
             f"https://github.com/yoavram-lab/VBPCApy/issues/110.",
             UserWarning,
             stacklevel=2,
         )
 
     bucket = _bucket(n, p)
-    if bucket in _ASPECT_RATIO_BUCKETS:
+    if bucket in _COARSE_BUCKETS:
         warnings.warn(
             f"recommend_config(n={n}, p={p}) uses the {bucket!r} bucket: "
             f"derived from adaptive search at a single representative "
-            f"example regime for this aspect ratio (#120), not the dense "
+            f"example regime for this matrix shape (#120), not the dense "
             f"factorial grid smallp/trans/large were tuned and replicated "
             f"against (#111). Treat as a coarser approximation. See "
             f"https://github.com/yoavram-lab/VBPCApy/issues/116.",

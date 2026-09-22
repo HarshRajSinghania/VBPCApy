@@ -168,8 +168,7 @@ def pca_full(
     """
     opts: MutableMapping[str, object] = _build_options(kwargs)
     use_prior, use_postvar = _select_algorithm(opts)
-    if "maxiters" in kwargs and "niter_broadprior" in kwargs:
-        _warn_if_no_post_warmup_window(opts, use_prior=use_prior)
+    _warn_if_no_post_warmup_window(opts, use_prior=use_prior)
 
     prepared = _prepare_problem(x, opts, mask_override=mask)
     training = _initialize_model(
