@@ -489,9 +489,13 @@ def convergence_check(
     if patience > 1:
         candidate = _apply_patience(candidate, lc, patience)
 
-    # Store the reason tag in lc for downstream consumers.
+    # Store only a candidate tag here. The training loop may suppress a
+    # criterion during broad-prior warmup; it promotes the tag only when the
+    # stop is actually accepted.
     if candidate and reason_tag:
-        lc["_convergence_reason"] = reason_tag  # type: ignore[index]
+        lc["_candidate_convergence_reason"] = reason_tag  # type: ignore[index]
+    else:
+        lc.pop("_candidate_convergence_reason", None)  # type: ignore[attr-defined]
 
     return candidate
 

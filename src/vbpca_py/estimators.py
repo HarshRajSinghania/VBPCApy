@@ -101,6 +101,7 @@ class VBPCA(BaseEstimator):
         self.cost_: float | None = None
         self.n_iter_: int | None = None
         self.convergence_reason_: str | None = None
+        self.converged_: bool | None = None
         self.learning_curve_: dict[str, list[float]] | None = None
         self.reconstruction_: np.ndarray | None = None
         # Posterior variance of the denoised reconstruction E[AS + mu]:
@@ -328,10 +329,16 @@ class VBPCA(BaseEstimator):
             rms_history = lc.get("rms", [])
             self.n_iter_ = max(0, len(rms_history) - 1)
             self.convergence_reason_ = str(lc.get("convergence_reason", "maxiters"))
+            self.converged_ = self.convergence_reason_ not in {
+                "maxiters",
+                "earlystop",
+                "slowing_down",
+            }
             self.learning_curve_ = lc
         else:
             self.n_iter_ = 0
             self.convergence_reason_ = "maxiters"
+            self.converged_ = False
             self.learning_curve_ = None
 
         self.reconstruction_ = None

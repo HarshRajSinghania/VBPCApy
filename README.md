@@ -57,7 +57,7 @@ More examples: [quickstart](https://yoavram-lab.github.io/VBPCApy/getting-starte
 - scikit-learn-compatible estimator (`fit`/`transform`/`inverse_transform`, `get_params`/`set_params`, cloning) — scikit-learn is an optional dependency
 - Model selection via `select_n_components` and `cross_validate_components`
 - Configurable convergence: subspace angle, RMS/cost plateau, ELBO, curvature, composite rules, patience, with per-criterion enable/disable and custom ordering
-- Convergence diagnostics (`n_iter_`, `convergence_reason_`, `learning_curve_`) and calibrated `predictive_variance_` (includes observation noise)
+- Convergence diagnostics (`n_iter_`, `converged_`, `convergence_reason_`, `learning_curve_`) and calibrated `predictive_variance_` (includes observation noise)
 - `recommend_config(n, p, priority)` — regime-aware default hyperparameters from a surrogate trade study
 
 See the [concept guides](https://yoavram-lab.github.io/VBPCApy/concepts/algorithm/) and [API reference](https://yoavram-lab.github.io/VBPCApy/api/vbpca/) for full details.

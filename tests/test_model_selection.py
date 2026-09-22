@@ -891,7 +891,9 @@ def test_trace_contains_convergence_diagnostics() -> None:
         assert "convergence_reason" in entry, (
             f"trace entry for k={entry['k']} missing convergence_reason"
         )
+        assert "converged" in entry
         assert isinstance(entry["n_iter"], int)
         assert entry["n_iter"] > 0
         assert isinstance(entry["convergence_reason"], str)
+        assert isinstance(entry["converged"], bool)
         assert entry["convergence_reason"] != ""

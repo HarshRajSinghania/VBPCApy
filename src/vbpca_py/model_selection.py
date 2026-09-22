@@ -160,6 +160,7 @@ def _fit_candidate(
         "evr": None,
         "n_iter": est.n_iter_ if est.n_iter_ is not None else 0,
         "convergence_reason": est.convergence_reason_ or "maxiters",
+        "converged": bool(est.converged_),
     }
     return entry, est
 

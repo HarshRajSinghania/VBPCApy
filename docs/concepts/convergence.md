@@ -87,6 +87,14 @@ $N$ consecutive iterations before convergence is declared.
   100), stopping messages are suppressed when `use_prior` is active, allowing the
   model to settle before ARD engages.
 
+A fit that reaches `maxiters` without accepting a criterion reports
+`convergence_reason_ == "maxiters"` and `converged_ == False`. Probe-based early
+stopping and the slowing-down guard also set `converged_ == False` because they
+terminate for validation or stability reasons rather than numerical
+convergence. When both options are explicit, VBPCA warns if
+`maxiters <= niter_broadprior`: that configuration leaves no eligible
+post-warmup iteration in which a convergence criterion can stop the fit.
+
 ## Criterion ordering — `criterion_order`
 
 By default, criteria are evaluated in a fixed priority order (angle first,

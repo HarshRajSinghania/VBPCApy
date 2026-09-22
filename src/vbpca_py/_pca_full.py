@@ -15,6 +15,7 @@ import contextlib
 import logging
 import os
 import time
+import warnings
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex, SupportsInt, cast
 
@@ -167,6 +168,8 @@ def pca_full(
     """
     opts: MutableMapping[str, object] = _build_options(kwargs)
     use_prior, use_postvar = _select_algorithm(opts)
+    if "maxiters" in kwargs and "niter_broadprior" in kwargs:
+        _warn_if_no_post_warmup_window(opts, use_prior=use_prior)
 
     prepared = _prepare_problem(x, opts, mask_override=mask)
     training = _initialize_model(
@@ -1246,9 +1249,9 @@ def _run_training_loop(
     # Cleanup internal stop marker to keep lc stable for external callers.
     training.lc.pop("_stop", None)
 
-    # Promote _convergence_reason to a top-level lc key (set by
-    # convergence_check when a criterion fires).  If no criterion
-    # fired the loop exhausted maxiters.
+    # Promote the accepted reason to a top-level learning-curve key. If no
+    # eligible criterion stopped the loop, it exhausted maxiters.
+    training.lc.pop("_candidate_convergence_reason", None)
     reason: str = str(training.lc.pop("_convergence_reason", "maxiters"))
     training.lc["convergence_reason"] = reason  # type: ignore[assignment]
 
@@ -1492,7 +1495,6 @@ def _convergence_phase(
 
 def _iteration_step(ctx: IterationContext) -> None:
     """One full iteration of updates; mutates ``ctx.training`` in place."""
-    cfg = ctx.cfg
     iter_start = time.perf_counter()
 
     _update_hyperpriors_phase(ctx)
@@ -1525,18 +1527,35 @@ def _iteration_step(ctx: IterationContext) -> None:
 
     # Store stop message internally to keep loop logic simple without touching
     # the public learning-curve schema.
-    stop_now = 0.0
-    if convmsg:
-        if cfg.use_prior and ctx.iteration <= _int_opt(
-            cfg.opts.get("niter_broadprior", 0)
-        ):
-            stop_now = 0.0
-        else:
-            if cfg.verbose:
-                logger.info("%s", convmsg)
-            stop_now = 1.0
-
+    stop_now = _accept_convergence_stop(ctx, convmsg)
     ctx.training.lc.setdefault("_stop", []).append(float(stop_now))
+
+
+def _accept_convergence_stop(ctx: IterationContext, convmsg: str | None) -> bool:
+    """Apply the warmup gate and promote an accepted convergence reason.
+
+    Returns:
+        Whether the training loop should stop after this iteration.
+    """
+    cfg = ctx.cfg
+    in_warmup = cfg.use_prior and ctx.iteration <= _int_opt(
+        cfg.opts.get("niter_broadprior", 0)
+    )
+    if in_warmup:
+        # Warmup criteria are diagnostic only. They must not leak a reason or
+        # patience credit into the first eligible post-warmup iteration.
+        ctx.training.lc.pop("_candidate_convergence_reason", None)
+        ctx.training.lc["_patience"] = [0.0]
+        return False
+    if not convmsg:
+        return False
+
+    reason = ctx.training.lc.pop("_candidate_convergence_reason", None)
+    if reason is not None:
+        ctx.training.lc["_convergence_reason"] = reason
+    if cfg.verbose:
+        logger.info("%s", convmsg)
+    return True
 
 
 def _append_phase_timings(
@@ -2076,3 +2095,23 @@ def _select_algorithm(opts: Mapping[str, object]) -> tuple[bool, bool]:
         return True, True
     msg = f"Wrong value of the argument 'algorithm': {opts['algorithm']}"
     raise ValueError(msg)
+
+
+def _warn_if_no_post_warmup_window(
+    opts: Mapping[str, object], *, use_prior: bool
+) -> None:
+    """Warn when the hard cap prevents any eligible convergence stop."""
+    if not use_prior:
+        return
+    maxiters = _int_opt(opts.get("maxiters", 0))
+    warmup = _int_opt(opts.get("niter_broadprior", 0))
+    if maxiters > warmup:
+        return
+    warnings.warn(
+        f"maxiters={maxiters} does not exceed niter_broadprior={warmup}; "
+        "convergence stops are suppressed throughout warmup, so this fit "
+        "will exhaust its iteration budget. Increase maxiters or shorten "
+        "niter_broadprior.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
