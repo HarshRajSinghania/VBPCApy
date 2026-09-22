@@ -95,17 +95,41 @@ def test_select_n_components_rejects_invalid_metric() -> None:
         select_n_components(x, config=cfg)
 
 
-def test_ensure_metric_opts_respects_configured_xprobe_fraction() -> None:
-    """A caller-supplied xprobe_fraction sizes the auto-generated probe set (#122)."""
+@pytest.mark.parametrize("metric", ["prms", "cost", "rms"])
+def test_ensure_metric_opts_respects_configured_xprobe_fraction(
+    metric: str,
+) -> None:
+    """An explicit probe fraction is respected independently of the metric."""
     rng = np.random.default_rng(0)
     x = rng.standard_normal((100, 80))
     fit_opts: dict[str, object] = {"xprobe_fraction": 0.02}
 
-    ms._ensure_metric_opts(fit_opts, x.copy(), None, SelectionConfig(metric="prms"))
+    cfg = SelectionConfig(metric="prms")
+    cfg.metric = metric  # type: ignore[assignment]
+    ms._ensure_metric_opts(fit_opts, x.copy(), None, cfg)
 
     xprobe = np.asarray(fit_opts["xprobe"])
     n_probe = int(np.sum(~np.isnan(xprobe)))
     assert n_probe == pytest.approx(x.size * 0.02, rel=0.1)
+
+
+@pytest.mark.parametrize("metric", ["cost", "rms"])
+def test_ensure_metric_opts_does_not_invent_probe_for_non_probe_metric(
+    metric: str,
+) -> None:
+    """Cost/RMS sweeps retain all observations unless a probe was requested."""
+    rng = np.random.default_rng(125)
+    x = rng.standard_normal((20, 10))
+    original = x.copy()
+    fit_opts: dict[str, object] = {}
+    cfg = SelectionConfig(metric="cost")
+    cfg.metric = metric  # type: ignore[assignment]
+
+    ms._ensure_metric_opts(fit_opts, x, None, cfg)
+
+    assert "xprobe" not in fit_opts
+    assert_allclose(x, original)
+    assert "cfstop" in fit_opts
 
 
 def test_ensure_metric_opts_falls_back_to_default_probe_fraction() -> None:

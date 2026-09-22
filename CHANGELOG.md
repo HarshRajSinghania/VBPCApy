@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `select_n_components()` now respects a caller-supplied `xprobe_fraction` when auto-generating a held-out probe set for the `"prms"`/`"cost"` selection metrics. Previously `_ensure_metric_opts` ignored it entirely and always used a hardcoded 10% probe fraction, regardless of what `xprobe_fraction` (e.g. from `recommend_config()`) was passed in — silently training every model-selection candidate on less data than the caller configured (#122).
+- `select_n_components()` no longer invents a 10% probe holdout for `"cost"` or `"rms"` selection when the caller supplied neither `xprobe` nor a positive `xprobe_fraction`. Explicit probe settings are still honored for convergence diagnostics, while `"prms"` retains its historical 10% fallback (#125).
 
 ### Changed
 - **Behavior change:** the default (`random_state=None`) now draws fresh entropy on every `fit()` call. Previously, default initialization was silently seeded with a fixed value regardless of configuration, so repeated fits produced identical results without any way to request a different draw. Pass `random_state=<int>` for reproducible runs (#109).
