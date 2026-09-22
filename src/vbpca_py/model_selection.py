@@ -265,7 +265,7 @@ def _ensure_metric_opts(  # noqa: PLR0914
     fit_opts: dict[str, object],
     x_arr: np.ndarray | sp.csr_matrix,
     mask: Matrix | None,
-    cfg: SelectionConfig,  # noqa: ARG001
+    cfg: SelectionConfig,
     seed: int = 0,
 ) -> None:
     """Enable VBPCA options required by the chosen selection metric.
@@ -274,11 +274,12 @@ def _ensure_metric_opts(  # noqa: PLR0914
 
     * **cfstop** — always enabled so the cost learning-curve is populated.
     * **xprobe** — when no probe set has been supplied, a random hold-out
-      of observed entries is created, sized by *fit_opts*'s own
-      ``xprobe_fraction`` when that's set to a positive value, falling
-      back to a default 10 % otherwise. The corresponding entries are set
-      to NaN in *x_arr* (dense) or removed from the CSR structure
-      (sparse) so the main fit never sees them.
+      of observed entries is created when the selection metric is ``"prms"``
+      or the caller requested a positive ``xprobe_fraction``. The requested
+      fraction is used when present; ``"prms"`` otherwise falls back to the
+      historical 10 % default. The corresponding entries are set to NaN in
+      *x_arr* (dense) or removed from the CSR structure (sparse) so the main
+      fit never sees them.
     """
     # --- cost: ensure cfstop is non-empty -----------------------------------
     cfstop_raw = fit_opts.get("cfstop")
@@ -290,9 +291,12 @@ def _ensure_metric_opts(  # noqa: PLR0914
         return  # user already supplied a probe set
 
     configured_fraction = _to_float(fit_opts.get("xprobe_fraction"))
-    probe_fraction = (
-        configured_fraction if configured_fraction > 0.0 else _PROBE_FRACTION
+    has_configured_fraction = bool(
+        np.isfinite(configured_fraction) and configured_fraction > 0.0
     )
+    if cfg.metric != "prms" and not has_configured_fraction:
+        return
+    probe_fraction = configured_fraction if has_configured_fraction else _PROBE_FRACTION
 
     rng = np.random.default_rng(seed)
 
