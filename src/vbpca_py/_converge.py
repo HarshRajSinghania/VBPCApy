@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, SupportsIndex, SupportsInt, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, MutableMapping, Sequence
+    from collections.abc import MutableMapping, Sequence
 
 import time
 
@@ -568,8 +569,7 @@ def _runtime_state_guard(state: ConvergenceState) -> None:
 
 
 def _append_cost_value(state: ConvergenceState) -> None:
-    cfstop_opt = state.opts.get("cfstop", [])
-    if np.size(np.asarray(cfstop_opt)) <= 0:
+    if not _cost_trace_required(state.opts):
         state.lc["cost"].append(float("nan"))
         return
 
@@ -609,6 +609,38 @@ def _append_cost_value(state: ConvergenceState) -> None:
     )
     cost, *_ = compute_full_cost(state.x_data, state.loadings, state.scores, params)
     state.lc["cost"].append(float(cost))
+
+
+def _cost_trace_required(opts: Mapping[str, object]) -> bool:
+    """Return whether an enabled convergence criterion consumes cost.
+
+    ``cfstop_rel`` and ``cfstop_curv`` are independent alternatives to the
+    windowed ``cfstop`` criterion.  Likewise, a composite criterion may use
+    ``elbo_rel`` without enabling any standalone cost stop.  Cost must be
+    populated for all of those configurations, not only when ``cfstop`` is
+    non-empty.
+
+    Returns:
+        ``True`` when at least one enabled stop criterion needs the cost trace.
+    """
+    enabled_raw = opts.get("convergence_criteria")
+    enabled = enabled_raw if isinstance(enabled_raw, Mapping) else {}
+
+    cost_enabled = bool(enabled.get("cost", True))
+    if cost_enabled:
+        cfstop = opts.get("cfstop")
+        if cfstop is not None and np.size(np.asarray(cfstop)) > 0:
+            return True
+        for name in ("cfstop_rel", "cfstop_curv"):
+            value = opts.get(name)
+            if value is not None and float(cast("Any", value)) > 0:
+                return True
+
+    composite = opts.get("composite_stop")
+    composite_enabled = bool(enabled.get("composite", True))
+    return (
+        composite_enabled and isinstance(composite, Mapping) and "elbo_rel" in composite
+    )
 
 
 def _angle_for_iteration(state: ConvergenceState) -> tuple[float, float | None]:
