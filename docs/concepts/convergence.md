@@ -93,7 +93,7 @@ A fit that reaches `maxiters` without accepting a criterion reports
 `convergence_reason_ == "maxiters"` and `converged_ == False`. Probe-based early
 stopping and the slowing-down guard also set `converged_ == False` because they
 terminate for validation or stability reasons rather than numerical
-convergence. When both options are explicit, VBPCA warns if
+convergence. VBPCA warns whenever the resolved options have
 `maxiters <= niter_broadprior`: that configuration leaves no eligible
 post-warmup iteration in which a convergence criterion can stop the fit.
 
