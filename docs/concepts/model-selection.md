@@ -23,14 +23,20 @@ best_k, metrics, trace, best_model = select_n_components(
 |--------|-------------|
 | `"cost"` | Variational free energy (negative ELBO). Lower is better. |
 | `"prms"` | Probe-set RMS — reconstruction error on held-out entries. Requires a probe set via `xprobe` or `xprobe_fraction`. |
+| `"rms"` | Training-set reconstruction RMS. Lower is better. |
+
+The requested metric is the objective: selection raises a clear error if that
+metric is unavailable instead of silently substituting another metric. For a
+cost sweep, VBPCApy records cost without enabling a cost-based convergence
+stop, so choosing the objective does not change when candidate fits terminate.
 
 ### `SelectionConfig` fields
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `metric` | `"prms"` | Selection metric |
-| `stop_on_metric_reversal` | `True` | Stop sweeping when the metric worsens |
-| `patience` | `None` | Consecutive worsening trials before stopping |
+| `stop_on_metric_reversal` | `False` | Stop sweeping when the metric worsens |
+| `patience` | `None` | Stop after exactly this many consecutive non-improving candidates; `0` stops on the first miss, and `None` disables the stop |
 | `max_trials` | `None` | Cap on the number of $k$ values tried |
 | `compute_explained_variance` | `True` | Compute explained variance for the best model |
 | `return_best_model` | `False` | Include the fitted `VBPCA` object in the return |

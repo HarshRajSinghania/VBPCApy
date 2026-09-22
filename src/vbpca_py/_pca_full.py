@@ -2017,6 +2017,7 @@ def _build_options(kwargs: Mapping[str, object]) -> dict[str, object]:
         "cfstop": np.array([]),
         "cfstop_rel": None,
         "cfstop_curv": None,
+        "record_cost": False,
         "composite_stop": None,
         "patience": 1,
         "criterion_order": None,

@@ -85,7 +85,7 @@ scores = model.fit_transform(x_sparse, mask=mask)
 | `n_components` | Number of latent components | *required* |
 | `bias` | Estimate per-feature mean | `True` |
 | `maxiters` | Maximum EM iterations | `1000` |
-| `tol` | Convergence tolerance | `1e-4` |
+| `rmsstop` | RMS plateau rule `[window, abs_tol, rel_tol]` | `[100, 1e-4, 1e-3]` |
 | `verbose` | Logging verbosity (0, 1, or 2) | `0` |
 | `xprobe_fraction` | Fraction of entries to hold out as probe | `0.0` |
 

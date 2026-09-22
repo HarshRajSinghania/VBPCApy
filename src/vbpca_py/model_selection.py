@@ -57,9 +57,6 @@ class SelectionConfig:
     return_best_model: bool = False
 
 
-_CFSTOP_DEFAULT = np.array([100, 1e-4, 1e-3])
-"""Sensible default for cfstop=[window, abs_tol, rel_tol]."""
-
 _PROBE_FRACTION = 0.1
 """Fraction of observed entries held out for the probe set."""
 
@@ -102,10 +99,10 @@ def _to_float(val: object | None) -> float:
 
 def _metric_value(metric: _Metric, rms: float, prms: float, cost: float) -> float:
     if metric == "rms":
-        return rms if np.isfinite(rms) else cost
+        return rms
     if metric == "prms":
-        return prms if np.isfinite(prms) else cost
-    return cost if np.isfinite(cost) else prms
+        return prms
+    return cost
 
 
 def _metric_value_from_entry(metric: _Metric, entry: dict[str, object]) -> float:
@@ -276,7 +273,8 @@ def _ensure_metric_opts(
 
     Mutates *fit_opts* in place:
 
-    * **cfstop** — always enabled so the cost learning-curve is populated.
+    * **record_cost** — enabled so endpoint diagnostics remain complete without
+      enabling any cost-based convergence criterion.
     * **xprobe** — when no probe set has been supplied, a random hold-out
       of observed entries is created when the selection metric is ``"prms"``
       or the caller requested a positive ``xprobe_fraction``. The requested
@@ -284,10 +282,7 @@ def _ensure_metric_opts(
       historical 10 % default. Candidate fits receive the same explicit probe;
       the estimator removes those entries from its training data and mask.
     """
-    # --- cost: ensure cfstop is non-empty -----------------------------------
-    cfstop_raw = fit_opts.get("cfstop")
-    if cfstop_raw is None or np.size(np.asarray(cfstop_raw)) == 0:
-        fit_opts["cfstop"] = _CFSTOP_DEFAULT
+    fit_opts["record_cost"] = True
 
     # --- prms: ensure xprobe is populated -----------------------------------
     if fit_opts.get("xprobe") is not None:
@@ -356,7 +351,8 @@ def _handle_metric_reversal(  # noqa: PLR0913
 def _handle_patience(
     *, state: _SweepState, cfg: SelectionConfig, k: int, verbose_enabled: bool
 ) -> bool:
-    if cfg.patience is None or state.no_improve <= int(cfg.patience):
+    required = max(1, int(cfg.patience)) if cfg.patience is not None else None
+    if required is None or state.no_improve < required:
         return False
     if verbose_enabled:
         logger.info(
@@ -399,6 +395,12 @@ def _sweep_components(
         trace.append(entry)
 
         metric_val = _metric_value_from_entry(cfg.metric, entry)
+        if not np.isfinite(metric_val):
+            msg = (
+                f"selection metric {cfg.metric!r} is unavailable for k={k}; "
+                "configure the requested metric instead of relying on a substitute"
+            )
+            raise ValueError(msg)
 
         if inputs.verbose_enabled:
             logger.info(
@@ -487,6 +489,9 @@ def select_n_components(
     if cfg.metric not in {"rms", "prms", "cost"}:
         msg = f"metric must be one of rms, prms, cost (got {cfg.metric!r})"
         raise ValueError(msg)
+    if cfg.patience is not None and int(cfg.patience) < 0:
+        msg = "patience must be a non-negative integer or None"
+        raise ValueError(msg)
     x_arr: np.ndarray | sp.csr_matrix = (
         sp.csr_matrix(x, copy=True) if sp.issparse(x) else np.array(x, dtype=float)
     )
@@ -504,7 +509,7 @@ def select_n_components(
     )
     fit_opts.setdefault("return_diagnostics", False)
 
-    # Enable cfstop / xprobe so that cost and prms metrics are populated.
+    # Record cost or prepare a probe set without changing convergence criteria.
     _ensure_metric_opts(
         fit_opts,
         x_arr,

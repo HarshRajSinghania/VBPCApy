@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import cast
 
 import numpy as np
@@ -18,6 +19,17 @@ from vbpca_py._sklearn_compat import BaseEstimator
 from vbpca_py.model_selection import SelectionConfig, select_n_components
 
 __all__ = ["VBPCA"]
+
+_TOL_DEPRECATION_MESSAGE = (
+    "tol is deprecated and has no effect; configure rmsstop, "
+    "cfstop_rel, or minangle explicitly"
+)
+
+
+def _warn_deprecated_tol(tol: float | None) -> None:
+    """Warn when the retained compatibility parameter is set."""
+    if tol is not None:
+        warnings.warn(_TOL_DEPRECATION_MESSAGE, FutureWarning, stacklevel=3)
 
 
 class VBPCA(BaseEstimator):
@@ -49,7 +61,9 @@ class VBPCA(BaseEstimator):
             n_components: Number of principal components to infer.
             bias: If True, include a bias (mean) term in the model.
             maxiters: Maximum number of iterations for the training loop.
-            tol: Tolerance for convergence.
+            tol: Deprecated compatibility parameter. It has no effect; use
+                an explicit convergence criterion such as ``rmsstop``,
+                ``cfstop_rel``, or ``minangle`` instead.
             verbose: Verbosity level; can be an integer or a boolean.
             hp_va: Prior hyperparameter for loadings variance (default 0.001).
             hp_vb: Prior hyperparameter for score variance (default 0.001).
@@ -206,6 +220,7 @@ class VBPCA(BaseEstimator):
         Raises:
             ValueError: If ``mask`` shape does not match ``x``.
         """
+        _warn_deprecated_tol(self.tol)
         opts: dict[str, object] = {
             "bias": self.bias,
             "verbose": self.verbose,
@@ -454,6 +469,7 @@ class VBPCA(BaseEstimator):
             Tuple of (best_k, best_metrics, trace, best_model) from the
             shared model-selection helper.
         """
+        _warn_deprecated_tol(self.tol)
         merged_opts: dict[str, object] = {
             "bias": self.bias,
             "verbose": self.verbose,
@@ -461,8 +477,6 @@ class VBPCA(BaseEstimator):
         }
         if self.maxiters is not None:
             merged_opts["maxiters"] = self.maxiters
-        if self.tol is not None:
-            merged_opts["tol"] = self.tol
         merged_opts.update(opts)
 
         cfg = config if config is not None else SelectionConfig()

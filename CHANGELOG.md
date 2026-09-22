@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `random_state` constructor kwarg on `VBPCA`: seeds parameter initialization and any auto-generated xprobe mask (`int`, `np.random.Generator`, or `None`, following the sklearn convention). Surfaced via `get_params()`/`set_params()`/`get_options()` (#109).
 
 ### Fixed
+- Component selection now evaluates the requested metric exactly, records cost
+  without silently enabling cost-based convergence, and stops after exactly
+  the configured number of consecutive non-improving candidates (#140).
 - Probe holdouts now remain excluded from training when callers provide an
   explicit observation mask. Sparse probe matrices are accepted without
   densification, and mask-aware probe generation preserves explicitly observed
@@ -21,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `select_n_components()` now passes its prepared probe mask explicitly into each candidate fit and seeds that mask from the caller's `random_state`. This prevents a second, differently seeded holdout inside `VBPCA.fit()` and makes a one-candidate sweep match the corresponding direct fit (#130).
 
 ### Changed
+- The inert `VBPCA(tol=...)` compatibility parameter is deprecated and warns
+  on `fit()`. Configure `rmsstop`, `cfstop_rel`, or `minangle` explicitly
+  instead (#140).
 - **Behavior change:** the default (`random_state=None`) now draws fresh entropy on every `fit()` call. Previously, default initialization was silently seeded with a fixed value regardless of configuration, so repeated fits produced identical results without any way to request a different draw. Pass `random_state=<int>` for reproducible runs (#109).
 - `recommend_config()`'s `missingness` parameter now warns (`UserWarning`) when passed anything other than the default `"auto"`, instead of silently ignoring it. Recommendations are still bucketed by `p` only — the Option A trade study's example recommendations are too sparse per (p-bucket, missingness) cell (23 points across 3 p-buckets x 4 missingness categories) to bucket on responsibly without shipping unreplicated values (#110, see also #111).
 - `defaults.py`'s docstring corrected the unsupported "`hp_va` is the dominant lever" claim (the trade study's own marginal sensitivity data doesn't support it) and now documents a real validation: replicated (n_reps=8, seeded) rank_mae for the shipped bucket configs is 28-58% lower than the library default across all three p-buckets, at a 0.4-3.8% cost in holdout RMSE (#111).
