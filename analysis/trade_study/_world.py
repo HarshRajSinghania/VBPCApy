@@ -144,8 +144,14 @@ class VBPCASimulator:
         maxiters = vbpca_kw.pop("maxiters", 200)
 
         t0 = time.perf_counter()
-        if selection_mode in {"cv_prms", "cv_cost"}:
-            cv_metric = "prms" if selection_mode == "cv_prms" else "cost"
+        if selection_mode == "cv_cost":
+            msg = (
+                "selection_mode='cv_cost' is unsupported: variational cost is "
+                "a training objective, not a held-out cross-validation metric"
+            )
+            raise ValueError(msg)
+        if selection_mode == "cv_prms":
+            cv_metric = "prms"
             cv_k, cv_results = cross_validate_components(
                 x_true,
                 mask=train_mask,

@@ -26,7 +26,10 @@ X_obs = np.where(mask, X, np.nan)
 
 `cross_validate_components` partitions the *observed entries* (not full rows)
 into folds. Each fold holds out a subset of entries, fits on the rest, and
-evaluates reconstruction on the held-out entries.
+evaluates reconstruction on the held-out entries. The current implementation
+accepts dense inputs and guarantees that each training fold retains at least
+one observation in every non-empty row and column. `CVConfig.seed` controls
+both fold assignment and model initialization.
 
 ```python
 from vbpca_py import cross_validate_components, CVConfig
@@ -54,8 +57,8 @@ print(f"Selected k = {best_k}  (true rank = {true_rank})")
 ```python
 for entry in results:
     k = entry["k"]
-    mean_metric = entry["mean"]
-    se = entry["se"]
+    mean_metric = entry["mean_prms"]
+    se = entry["se_prms"]
     marker = " <-- selected" if k == best_k else ""
     print(f"  k={k:2d}  prms={mean_metric:.4f} ± {se:.4f}{marker}")
 ```
