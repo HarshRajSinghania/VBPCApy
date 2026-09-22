@@ -213,9 +213,55 @@ def test_cfstop_rel_terminates_fit(
 ) -> None:
     """cfstop_rel criterion terminates the fit before maxiters."""
     _x_clean, x_noisy, true_rank, _noise_std = low_rank_dense
-    result = pca_full(x_noisy, true_rank, bias=True, maxiters=500, cfstop_rel=1e-6)
+    result = pca_full(
+        x_noisy,
+        true_rank,
+        bias=True,
+        maxiters=500,
+        niter_broadprior=0,
+        cfstop_rel=1.0,
+        minangle=0,
+        rmsstop=None,
+        convergence_criteria={
+            "angle": False,
+            "earlystop": False,
+            "rms_plateau": False,
+            "cost": True,
+            "composite": False,
+            "slowing_down": False,
+        },
+    )
     n_iters = len(result["lc"]["rms"])
     assert n_iters < 500
+    assert result["lc"]["convergence_reason"] == "cfstop_rel"
+    assert np.isfinite(np.asarray(result["lc"]["cost"])[1:]).all()
+
+
+def test_cfstop_curv_populates_cost_and_terminates_fit(
+    low_rank_dense: tuple[np.ndarray, np.ndarray, int, float],
+) -> None:
+    """cfstop_curv computes cost even when windowed cfstop is disabled."""
+    _x_clean, x_noisy, true_rank, _noise_std = low_rank_dense
+    result = pca_full(
+        x_noisy,
+        true_rank,
+        bias=True,
+        maxiters=500,
+        niter_broadprior=0,
+        cfstop_curv=1e9,
+        minangle=0,
+        rmsstop=None,
+        convergence_criteria={
+            "angle": False,
+            "earlystop": False,
+            "rms_plateau": False,
+            "cost": True,
+            "composite": False,
+            "slowing_down": False,
+        },
+    )
+    assert result["lc"]["convergence_reason"] == "cfstop_curv"
+    assert np.isfinite(np.asarray(result["lc"]["cost"])[1:]).all()
 
 
 def test_composite_stop_terminates_fit(
@@ -228,10 +274,23 @@ def test_composite_stop_terminates_fit(
         true_rank,
         bias=True,
         maxiters=500,
-        composite_stop={"angle": 1e-3, "elbo_rel": 1e-5},
+        niter_broadprior=0,
+        minangle=0,
+        rmsstop=None,
+        composite_stop={"elbo_rel": 1.0},
+        convergence_criteria={
+            "angle": False,
+            "earlystop": False,
+            "rms_plateau": False,
+            "cost": False,
+            "composite": True,
+            "slowing_down": False,
+        },
     )
     n_iters = len(result["lc"]["rms"])
     assert n_iters < 500
+    assert result["lc"]["convergence_reason"] == "composite"
+    assert np.isfinite(np.asarray(result["lc"]["cost"])[1:]).all()
 
 
 def test_patience_delays_convergence(
