@@ -769,23 +769,21 @@ def test_patience_suppresses_first_trigger() -> None:
     """With patience=3, the first trigger should be suppressed."""
     opts = _opts_with_patience(3)
     lc = _lc(rms=[0.5, 0.4], prms=[1.0, 0.9], cost=[10.0, 9.0])
-    lc["_patience"] = [0.0]
 
     msg = convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
     assert msg == ""
-    assert lc["_patience"][0] == pytest.approx(1.0)
+    assert lc["_criterion_patience"]["angle"] == pytest.approx(1.0)
 
 
 def test_patience_fires_after_consecutive_triggers() -> None:
     """With patience=3, the third consecutive trigger emits the message."""
     opts = _opts_with_patience(3)
     lc = _lc(rms=[0.5, 0.4], prms=[1.0, 0.9], cost=[10.0, 9.0])
-    lc["_patience"] = [0.0]
 
     # Triggers 1 and 2: suppressed
     convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
     convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
-    assert lc["_patience"][0] == pytest.approx(2.0)
+    assert lc["_criterion_patience"]["angle"] == pytest.approx(2.0)
 
     # Trigger 3: fires
     msg = convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
@@ -796,22 +794,61 @@ def test_patience_resets_on_no_trigger() -> None:
     """If a non-triggering iteration breaks the streak, counter resets."""
     opts = _opts_with_patience(3)
     lc = _lc(rms=[0.5, 0.4], prms=[1.0, 0.9], cost=[10.0, 9.0])
-    lc["_patience"] = [0.0]
 
     # Two triggers
     convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
     convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
-    assert lc["_patience"][0] == pytest.approx(2.0)
+    assert lc["_criterion_patience"]["angle"] == pytest.approx(2.0)
 
     # No trigger (angle too large)
     convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
-    assert lc["_patience"][0] == pytest.approx(0.0)
+    assert lc["_criterion_patience"]["angle"] == pytest.approx(0.0)
 
     # Need 3 more consecutive to fire
     convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
     convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
     msg = convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
     assert "angle" in msg.lower()
+
+
+def test_alternating_criteria_do_not_share_patience() -> None:
+    """Different criteria cannot combine their streaks to stop a fit."""
+    opts = {
+        **_opts_with_patience(2),
+        "rmsstop": [1, 1e-3, 1e-3],
+    }
+    lc = _lc(rms=[1.0, 0.5], prms=[1.0, 0.9], cost=[10.0, 9.0])
+
+    # Angle alone is satisfied.
+    assert convergence_check(opts, lc, angle_a=1e-4, sd_iter=None) == ""
+    assert lc["_criterion_patience"]["angle"] == pytest.approx(1.0)
+    assert lc["_criterion_patience"]["rms_plateau"] == pytest.approx(0.0)
+
+    # RMS alone is then satisfied. Under the old shared counter this second,
+    # different criterion incorrectly exhausted patience=2.
+    lc["rms"].append(0.5001)
+    assert convergence_check(opts, lc, angle_a=1.0, sd_iter=None) == ""
+    assert lc["_criterion_patience"]["angle"] == pytest.approx(0.0)
+    assert lc["_criterion_patience"]["rms_plateau"] == pytest.approx(1.0)
+
+    lc["rms"].append(0.5002)
+    msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
+    assert "rms" in msg.lower()
+
+
+def test_satisfaction_diagnostics_include_nonwinning_criteria() -> None:
+    """Every criterion records raw satisfaction before ordering is applied."""
+    opts = {
+        **_opts_with_patience(1),
+        "rmsstop": [1, 1e-3, 1e-3],
+    }
+    lc = _lc(rms=[0.5, 0.5001], prms=[1.0, 0.9], cost=[10.0, 9.0])
+
+    msg = convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
+
+    assert "angle" in msg.lower()
+    assert lc["criterion_satisfied_angle"][-1] == pytest.approx(1.0)
+    assert lc["criterion_satisfied_rms_plateau"][-1] == pytest.approx(1.0)
 
 
 def test_patience_1_is_default_behaviour() -> None:

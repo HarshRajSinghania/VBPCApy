@@ -72,8 +72,10 @@ model = VBPCA(
 
 ## Patience
 
-All criteria support a **patience window**: the criterion must be satisfied for
-$N$ consecutive iterations before convergence is declared.
+All criteria support a **criterion-specific patience window**: the same
+criterion must be satisfied for $N$ consecutive eligible iterations before
+convergence is declared. Alternating hits from different criteria are tracked
+separately and cannot jointly satisfy patience.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -97,9 +99,13 @@ post-warmup iteration in which a convergence criterion can stop the fit.
 
 ## Criterion ordering — `criterion_order`
 
-By default, criteria are evaluated in a fixed priority order (angle first,
-slowing-down last). The first criterion that fires wins. You can change
-this ordering with `criterion_order`:
+Individual criteria have **OR semantics** by default. Criteria are evaluated in
+a fixed priority order (angle first, slowing-down last), and the first eligible
+criterion whose own patience streak is complete wins. Reordering determines
+the winner when multiple criteria are ready on the same iteration; it does not
+require an earlier criterion to converge before a later one may stop the fit.
+Use `composite_stop` and disable its individual constituents when AND semantics
+are required.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -107,6 +113,10 @@ this ordering with `criterion_order`:
 
 Valid criterion names: `angle`, `earlystop`, `rms_plateau`, `cost`,
 `composite`, `slowing_down`.
+
+The learning curve records a numeric `criterion_satisfied_<name>` trace for
+every criterion, including disabled or nonwinning criteria. These traces allow
+counterfactual stopping policies to be compared after a long-running fit.
 
 ## Per-criterion enable/disable — `convergence_criteria`
 
