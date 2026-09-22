@@ -599,7 +599,10 @@ def test_pca_full_probe_noise_variance_and_prms_finite() -> None:
     rng = np.random.default_rng(8080)
     x = rng.standard_normal((4, 6))
 
-    xprobe = rng.standard_normal(x.shape)
+    xprobe = np.full_like(x, np.nan)
+    probe_rows = np.arange(x.shape[0])
+    probe_cols = np.array([0, 2, 4, 5])
+    xprobe[probe_rows, probe_cols] = x[probe_rows, probe_cols]
 
     out = pca_full(
         x,

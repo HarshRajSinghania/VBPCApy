@@ -11,6 +11,7 @@ which can then share computations such as covariance patterns.
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 
 import numpy as np
 import scipy.sparse as sp
@@ -18,6 +19,7 @@ import scipy.sparse as sp
 logger = logging.getLogger(__name__)
 
 MASK_WRONG_DIM = "mask must be a 2D array."
+Matrix = np.ndarray | sp.spmatrix
 
 
 def _missing_patterns(
@@ -111,28 +113,53 @@ def _xprobe_sparse(
     x: sp.csr_matrix,
     fraction: float,
     rng: np.random.Generator,
+    mask: Matrix | None = None,
 ) -> tuple[sp.csr_matrix, sp.csr_matrix]:
     """Hold out probe entries from a sparse matrix.
 
     Returns:
         Tuple of (x_masked, xprobe) as CSR matrices.
+
+    Raises:
+        ValueError: If the mask shape is invalid or has no observed entries.
     """
     x_csr = sp.csr_matrix(x, copy=True)
-    n_probe = max(1, round(x_csr.nnz * fraction))
-    probe_idx = rng.choice(x_csr.nnz, size=n_probe, replace=False)
+    if mask is None:
+        observed = x_csr.copy()
+        observed.data = np.ones(observed.nnz, dtype=bool)
+    elif sp.issparse(mask):
+        observed = sp.csr_matrix(cast("Any", mask), dtype=bool, copy=True)
+        observed.eliminate_zeros()
+    else:
+        mask_arr = np.asarray(mask, dtype=bool)
+        if mask_arr.shape != x_csr.shape:
+            msg = "mask must have the same shape as x"
+            raise ValueError(msg)
+        observed = sp.csr_matrix(mask_arr)
 
-    rows, cols = x_csr.nonzero()
+    if observed.shape != x_csr.shape:
+        msg = "mask must have the same shape as x"
+        raise ValueError(msg)
+
+    rows, cols = observed.nonzero()
+    n_observed = len(rows)
+    if n_observed == 0:
+        msg = "cannot create a probe set from data with no observed entries"
+        raise ValueError(msg)
+    n_probe = min(n_observed, max(1, round(n_observed * fraction)))
+    probe_idx = rng.choice(n_observed, size=n_probe, replace=False)
+
     sp_rows = rows[probe_idx]
     sp_cols = cols[probe_idx]
     sp_vals = np.array(x_csr[sp_rows, sp_cols]).ravel()
 
-    xprobe_sp = sp.lil_matrix(x_csr.shape, dtype=float)
-    for r, c, v in zip(sp_rows, sp_cols, sp_vals, strict=True):
-        xprobe_sp[r, c] = v
-    xprobe = sp.csr_matrix(xprobe_sp)
+    # Construct directly from coordinates so explicitly observed zero values
+    # remain structurally present in the sparse probe matrix.
+    xprobe = sp.csr_matrix((sp_vals, (sp_rows, sp_cols)), shape=x_csr.shape)
 
-    for r, c in zip(sp_rows, sp_cols, strict=True):
-        x_csr[r, c] = 0.0
+    probe_indicator = xprobe.copy()
+    probe_indicator.data = np.ones(probe_indicator.nnz, dtype=float)
+    x_csr -= x_csr.multiply(probe_indicator)
     x_csr.eliminate_zeros()
     x_csr.sort_indices()
     return x_csr, xprobe
@@ -142,14 +169,33 @@ def _xprobe_dense(
     x: np.ndarray,
     fraction: float,
     rng: np.random.Generator,
+    mask: Matrix | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Hold out probe entries from a dense matrix.
 
     Returns:
         Tuple of (x_masked, xprobe) as dense arrays.
+
+    Raises:
+        ValueError: If the mask is sparse, has the wrong shape, or is empty.
     """
     x_dense = np.array(x, dtype=float, copy=True)
-    obs_rows, obs_cols = np.nonzero(~np.isnan(x_dense))
+    if mask is None:
+        observed = ~np.isnan(x_dense)
+    else:
+        if sp.issparse(mask):
+            msg = "mask must be dense when x is dense"
+            raise ValueError(msg)
+        observed = np.asarray(mask, dtype=bool)
+        if observed.shape != x_dense.shape:
+            msg = "mask must have the same shape as x"
+            raise ValueError(msg)
+        observed &= ~np.isnan(x_dense)
+
+    obs_rows, obs_cols = np.nonzero(observed)
+    if len(obs_rows) == 0:
+        msg = "cannot create a probe set from data with no observed entries"
+        raise ValueError(msg)
     n_probe = max(1, round(len(obs_rows) * fraction))
     probe_idx = rng.choice(len(obs_rows), size=n_probe, replace=False)
 
@@ -166,6 +212,8 @@ def make_xprobe_mask(
     x: np.ndarray | sp.csr_matrix,
     fraction: float = 0.10,
     rng: np.random.Generator | None = None,
+    *,
+    mask: Matrix | None = None,
 ) -> tuple[np.ndarray | sp.csr_matrix, np.ndarray | sp.csr_matrix]:
     """Hold out a fraction of observed entries as probe data.
 
@@ -181,6 +229,9 @@ def make_xprobe_mask(
             Must be in ``(0, 1)``.
         rng: NumPy random generator.  If ``None``, a new default generator
             is created.
+        mask: Optional observation mask. When supplied, probe entries are
+            sampled only from positions marked observed, including explicitly
+            stored zero values in sparse data.
 
     Returns:
         x_masked: Copy of *x* with probe entries set to NaN (dense) or
@@ -200,5 +251,5 @@ def make_xprobe_mask(
         rng = np.random.default_rng()
 
     if sp.issparse(x):
-        return _xprobe_sparse(sp.csr_matrix(x), fraction, rng)
-    return _xprobe_dense(np.asarray(x), fraction, rng)
+        return _xprobe_sparse(sp.csr_matrix(x), fraction, rng, mask)
+    return _xprobe_dense(np.asarray(x), fraction, rng, mask)

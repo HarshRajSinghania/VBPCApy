@@ -235,6 +235,7 @@ class VBPCA(BaseEstimator):
                 x,
                 fraction=self.xprobe_fraction,
                 rng=np.random.default_rng(self.random_state),
+                mask=mask,
             )
             opts["xprobe"] = xprobe_gen
 

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `random_state` constructor kwarg on `VBPCA`: seeds parameter initialization and any auto-generated xprobe mask (`int`, `np.random.Generator`, or `None`, following the sklearn convention). Surfaced via `get_params()`/`set_params()`/`get_options()` (#109).
 
 ### Fixed
+- Probe holdouts now remain excluded from training when callers provide an
+  explicit observation mask. Sparse probe matrices are accepted without
+  densification, and mask-aware probe generation preserves explicitly observed
+  zero values (#145).
 - `select_n_components()` now respects a caller-supplied `xprobe_fraction` when auto-generating a held-out probe set for the `"prms"`/`"cost"` selection metrics. Previously `_ensure_metric_opts` ignored it entirely and always used a hardcoded 10% probe fraction, regardless of what `xprobe_fraction` (e.g. from `recommend_config()`) was passed in — silently training every model-selection candidate on less data than the caller configured (#122).
 - `select_n_components()` no longer invents a 10% probe holdout for `"cost"` or `"rms"` selection when the caller supplied neither `xprobe` nor a positive `xprobe_fraction`. Explicit probe settings are still honored for convergence diagnostics, while `"prms"` retains its historical 10% fallback (#125).
 - Convergence-angle logging now handles complete ARD pruning without reducing an empty principal-angle array. Stable empty subspaces have angle zero; a transition to or from an empty subspace uses the maximal angle so it cannot trigger premature angle convergence (#128).
