@@ -10,9 +10,14 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pytest
 
-from vbpca_py._converge import DEFAULT_CRITERION_ORDER, convergence_check
+from vbpca_py._converge import (
+    DEFAULT_CRITERION_ORDER,
+    _max_subspace_angle,
+    convergence_check,
+)
 
 
 def _lc(
@@ -40,6 +45,22 @@ def _lc(
 # --------------------------------------------------------------------------
 # Basic angle / early stop behaviour
 # --------------------------------------------------------------------------
+
+
+def test_empty_subspaces_have_zero_angle() -> None:
+    """Two stable empty loading subspaces should be treated as identical."""
+    empty = np.empty((8, 0))
+
+    assert _max_subspace_angle(empty, empty) == pytest.approx(0.0)
+
+
+def test_pruning_to_empty_subspace_has_maximum_angle() -> None:
+    """Pruning the final component must not trigger angle convergence."""
+    empty = np.empty((8, 0))
+    nonempty = np.ones((8, 1))
+
+    assert _max_subspace_angle(empty, nonempty) == pytest.approx(np.pi / 2.0)
+    assert _max_subspace_angle(nonempty, empty) == pytest.approx(np.pi / 2.0)
 
 
 def test_angle_convergence_triggers() -> None:
