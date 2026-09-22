@@ -519,8 +519,8 @@ def select_n_components(
         ValueError: If ``metric`` is invalid or no valid ``components`` are provided.
     """
     cfg = config or SelectionConfig()
-    if cfg.metric not in {"prms", "cost"}:
-        msg = f"metric must be one of prms, cost (got {cfg.metric!r})"
+    if cfg.metric not in {"rms", "prms", "cost"}:
+        msg = f"metric must be one of rms, prms, cost (got {cfg.metric!r})"
         raise ValueError(msg)
     x_arr: np.ndarray | sp.csr_matrix = (
         sp.csr_matrix(x, copy=True) if sp.issparse(x) else np.array(x, dtype=float)

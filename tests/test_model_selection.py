@@ -95,6 +95,30 @@ def test_select_n_components_rejects_invalid_metric() -> None:
         select_n_components(x, config=cfg)
 
 
+def test_select_n_components_accepts_rms_metric() -> None:
+    """The public RMS metric works through the complete selection path (#124)."""
+    rng = np.random.default_rng(124)
+    x = _low_rank_data(rng, n_features=5, n_samples=8, rank=2)
+
+    best_k, best_metrics, trace, _ = select_n_components(
+        x,
+        components=[1, 2],
+        config=SelectionConfig(
+            metric="rms",
+            max_trials=2,
+            compute_explained_variance=False,
+        ),
+        maxiters=10,
+        random_state=124,
+        verbose=0,
+    )
+
+    assert len(trace) == 2
+    assert best_k in {1, 2}
+    assert np.isfinite(best_metrics["rms"])
+    assert best_metrics["rms"] == min(entry["rms"] for entry in trace)
+
+
 @pytest.mark.parametrize("metric", ["prms", "cost", "rms"])
 def test_ensure_metric_opts_respects_configured_xprobe_fraction(
     metric: str,
