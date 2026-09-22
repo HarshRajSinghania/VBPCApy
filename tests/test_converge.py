@@ -15,6 +15,7 @@ import pytest
 
 from vbpca_py._converge import (
     DEFAULT_CRITERION_ORDER,
+    _cost_trace_required,
     _max_subspace_angle,
     convergence_check,
 )
@@ -40,6 +41,25 @@ def _lc(
         # time just needs to be the same length as rms/prms for PrintStep logic
         "time": list(range(n)),
     }
+
+
+def test_record_cost_does_not_enable_a_cost_stop() -> None:
+    opts: dict[str, Any] = {
+        "record_cost": True,
+        "cfstop": None,
+        "cfstop_rel": None,
+        "cfstop_curv": None,
+        "composite_stop": None,
+    }
+
+    assert _cost_trace_required(opts)
+    msg = convergence_check(
+        opts,
+        _lc(rms=[1.0, 0.9], prms=[1.0, 0.9], cost=[1.0, 1.0]),
+        angle_a=float("inf"),
+        sd_iter=None,
+    )
+    assert not msg
 
 
 # --------------------------------------------------------------------------

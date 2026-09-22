@@ -634,7 +634,7 @@ def _append_cost_value(state: ConvergenceState) -> None:
 
 
 def _cost_trace_required(opts: Mapping[str, object]) -> bool:
-    """Return whether an enabled convergence criterion consumes cost.
+    """Return whether diagnostics or an enabled criterion consume cost.
 
     ``cfstop_rel`` and ``cfstop_curv`` are independent alternatives to the
     windowed ``cfstop`` criterion.  Likewise, a composite criterion may use
@@ -643,8 +643,12 @@ def _cost_trace_required(opts: Mapping[str, object]) -> bool:
     non-empty.
 
     Returns:
-        ``True`` when at least one enabled stop criterion needs the cost trace.
+        ``True`` when recording was requested or an enabled stop criterion
+        needs the cost trace.
     """
+    if bool(opts.get("record_cost", False)):
+        return True
+
     enabled_raw = opts.get("convergence_criteria")
     enabled = enabled_raw if isinstance(enabled_raw, Mapping) else {}
 

@@ -66,7 +66,7 @@ def test_select_n_components_respects_max_trials() -> None:
     assert best_k == trace[0]["k"]
 
 
-def test_select_n_components_falls_back_when_prms_missing() -> None:
+def test_select_n_components_generates_requested_prms() -> None:
     rng = np.random.default_rng(2)
     x = _low_rank_data(rng, n_features=4, n_samples=6, rank=1)
 
@@ -81,8 +81,41 @@ def test_select_n_components_falls_back_when_prms_missing() -> None:
     )
 
     assert best_k in {1, 2}
-    assert np.isfinite(best_metrics["prms"]) or np.isfinite(best_metrics["cost"])
+    assert np.isfinite(best_metrics["prms"])
+    assert all(np.isfinite(entry["prms"]) for entry in trace)
     assert len(trace) == 2
+
+
+def test_select_n_components_rejects_unavailable_requested_metric(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    x = np.ones((3, 5), dtype=float)
+
+    def _fake_fit_candidate(
+        *args: object, **kwargs: object
+    ) -> tuple[dict[str, object], object]:
+        return (
+            {
+                "k": 1,
+                "rms": 0.5,
+                "prms": float("nan"),
+                "cost": 0.1,
+                "evr": None,
+            },
+            object(),
+        )
+
+    monkeypatch.setattr(ms, "_fit_candidate", _fake_fit_candidate)
+
+    with pytest.raises(ValueError, match="metric 'prms' is unavailable"):
+        select_n_components(
+            x,
+            components=[1],
+            config=SelectionConfig(
+                metric="prms",
+                compute_explained_variance=False,
+            ),
+        )
 
 
 def test_select_n_components_rejects_invalid_metric() -> None:
@@ -154,7 +187,18 @@ def test_ensure_metric_opts_does_not_invent_probe_for_non_probe_metric(
 
     assert "xprobe" not in fit_opts
     assert_allclose(x, original)
-    assert "cfstop" in fit_opts
+    assert "cfstop" not in fit_opts
+    assert fit_opts["record_cost"] is True
+
+
+def test_ensure_metric_opts_records_cost_without_enabling_cost_stop() -> None:
+    x = np.ones((4, 6), dtype=float)
+    fit_opts: dict[str, object] = {"cfstop": np.array([])}
+
+    ms._ensure_metric_opts(fit_opts, x, None, SelectionConfig(metric="cost"))
+
+    assert fit_opts["record_cost"] is True
+    assert np.size(fit_opts["cfstop"]) == 0
 
 
 def test_ensure_metric_opts_falls_back_to_default_probe_fraction() -> None:
@@ -178,7 +222,7 @@ def test_single_candidate_selection_matches_direct_fit_with_probe() -> None:
         "random_state": 42,
         "xprobe_fraction": 0.1,
         "rotate2pca": 0,
-        "cfstop": ms._CFSTOP_DEFAULT.copy(),
+        "record_cost": True,
     }
     config = SelectionConfig(
         metric="cost",
@@ -248,13 +292,40 @@ def test_select_n_components_empty_after_normalization_raises() -> None:
         select_n_components(x, components=[0, -2, -3])
 
 
-def test_select_n_components_patience_stops_early() -> None:
-    rng = np.random.default_rng(6)
-    x = _low_rank_data(rng, n_features=6, n_samples=10, rank=1)
+def test_select_n_components_rejects_negative_patience() -> None:
+    x = np.ones((3, 5), dtype=float)
+
+    with pytest.raises(ValueError, match="patience must be a non-negative integer"):
+        select_n_components(x, config=SelectionConfig(patience=-1))
+
+
+def test_select_n_components_patience_stops_after_exact_streak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    x = np.ones((3, 5), dtype=float)
+    cost_by_k = {1: 0.5, 2: 0.6, 3: 0.7, 4: 0.4}
+
+    def _fake_fit_candidate(
+        k: int,
+        *args: object,
+        **kwargs: object,
+    ) -> tuple[dict[str, object], object]:
+        return (
+            {
+                "k": k,
+                "rms": 1.0,
+                "prms": 1.0,
+                "cost": cost_by_k[k],
+                "evr": None,
+            },
+            object(),
+        )
+
+    monkeypatch.setattr(ms, "_fit_candidate", _fake_fit_candidate)
 
     cfg = SelectionConfig(
         metric="cost",
-        patience=0,
+        patience=2,
         max_trials=None,
         compute_explained_variance=False,
     )
@@ -263,11 +334,9 @@ def test_select_n_components_patience_stops_early() -> None:
         x,
         components=[1, 2, 3, 4],
         config=cfg,
-        maxiters=20,
-        verbose=0,
     )
 
-    assert 1 <= len(trace) <= 4
+    assert [entry["k"] for entry in trace] == [1, 2, 3]
 
 
 def test_select_n_components_stop_on_metric_reversal_uses_previous_k(

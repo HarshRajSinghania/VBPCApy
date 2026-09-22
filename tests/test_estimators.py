@@ -12,7 +12,7 @@ from vbpca_py.estimators import VBPCA
 def test_vbpca_fit_transform_shapes() -> None:
     rng = np.random.default_rng(0)
     x = rng.standard_normal((6, 4))
-    model = VBPCA(n_components=2, maxiters=5, tol=1e-3)
+    model = VBPCA(n_components=2, maxiters=5)
     scores = model.fit_transform(x)
     assert scores.shape == (2, x.shape[1])
     assert model.components_.shape == (x.shape[0], 2)
@@ -27,12 +27,20 @@ def test_vbpca_with_mask() -> None:
     mask[0, 0] = 0.0
     x_missing = x.copy()
     x_missing[0, 0] = np.nan
-    model = VBPCA(n_components=2, maxiters=5, tol=1e-3)
+    model = VBPCA(n_components=2, maxiters=5)
     model.fit(x_missing, mask=mask)
     assert model.components_.shape[0] == x.shape[0]
     assert model.scores_.shape[1] == x.shape[1]
     recon = model.inverse_transform()
     assert recon.shape == x.shape
+
+
+def test_deprecated_tol_warns_at_fit() -> None:
+    x = np.random.default_rng(140).standard_normal((4, 6))
+    model = VBPCA(n_components=1, maxiters=2, tol=1e-3, verbose=0)
+
+    with pytest.warns(FutureWarning, match="tol is deprecated and has no effect"):
+        model.fit(x)
 
 
 def test_explicit_probe_remains_active_with_explicit_mask() -> None:

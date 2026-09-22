@@ -48,9 +48,10 @@ def test_select_n_components_delegates(monkeypatch: pytest.MonkeyPatch) -> None:
         runtime_tuning="off",
     )
     x = np.array([[1.0, 2.0], [3.0, 4.0]])
-    best_k, best_metrics, trace, best_model = model.select_n_components(
-        x, components=[1, 2]
-    )
+    with pytest.warns(FutureWarning, match="tol is deprecated and has no effect"):
+        best_k, best_metrics, trace, best_model = model.select_n_components(
+            x, components=[1, 2]
+        )
 
     assert best_k == 2
     assert best_metrics["best"] is True
@@ -60,3 +61,4 @@ def test_select_n_components_delegates(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["components"] == [1, 2]
     assert captured["opts"].get("bias") is False
     assert captured["opts"].get("runtime_tuning") == "off"
+    assert "tol" not in captured["opts"]
