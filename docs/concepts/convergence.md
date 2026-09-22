@@ -18,7 +18,10 @@ the threshold.
 ### 2. Early stopping on probe RMS — `earlystop`
 
 When a probe set is provided (via `xprobe` or `xprobe_fraction`), stops if the
-probe RMS starts increasing (overfitting signal).
+probe RMS starts increasing (overfitting signal). The returned factors are
+restored to the lowest-probe-RMS state; the complete trace remains available,
+with `best_probe_iteration_`, `best_probe_rms_`, and `returned_iteration_`
+identifying the selected state.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -26,8 +29,9 @@ probe RMS starts increasing (overfitting signal).
 
 ### 3. RMS plateau — `rmsstop`
 
-Compares the current RMS to the value `window` iterations ago. Stops if the
-absolute change is below `abs_tol` or the relative change is below `rel_tol`.
+Compares the current RMS to the value `window` iterations ago. Stops if RMS did
+not worsen and the absolute change is below `abs_tol` or the relative change is
+below `rel_tol`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -44,7 +48,9 @@ ELBO).
 
 ### 5. Relative ELBO decrease — `cfstop_rel`
 
-Stops when the fractional ELBO improvement drops below a threshold.
+Stops when the fractional improvement in variational free energy (negative
+ELBO, so lower is better) drops below a threshold. A worsening step does not
+count as convergence.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -52,11 +58,14 @@ Stops when the fractional ELBO improvement drops below a threshold.
 
 ### 6. ELBO curvature — `cfstop_curv`
 
-Stops when the second difference of the ELBO stabilises.
+Stops only when the current free-energy slope and its second difference are
+both smaller than the threshold. Requiring a small slope prevents a constant
+but steep descent (zero curvature) from being mistaken for convergence, and a
+worsening step does not satisfy the criterion.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `cfstop_curv` | disabled | Curvature threshold |
+| `cfstop_curv` | disabled | Joint absolute slope and curvature threshold |
 
 ### 7. Composite criteria — `composite_stop`
 
@@ -66,9 +75,12 @@ which criteria must all be satisfied:
 ```python
 model = VBPCA(
     n_components=5,
-    composite_stop={"rmsstop": [50, 1e-4, 1e-3], "cfstop": [50, 1e-3, 1e-2]},
+    composite_stop={"angle": 1e-4, "rms": 1e-3, "elbo_rel": 1e-4},
 )
 ```
+
+The valid keys are `angle`, `rms`, and `elbo_rel`; each value is a scalar
+threshold. The `rms` and `elbo_rel` checks require a non-worsening final step.
 
 ## Patience
 
@@ -115,8 +127,11 @@ Valid criterion names: `angle`, `earlystop`, `rms_plateau`, `cost`,
 `composite`, `slowing_down`.
 
 The learning curve records a numeric `criterion_satisfied_<name>` trace for
-every criterion, including disabled or nonwinning criteria. These traces allow
-counterfactual stopping policies to be compared after a long-running fit.
+every criterion, including disabled or nonwinning criteria. Cost rules also
+have separate `criterion_satisfied_cost_plateau`,
+`criterion_satisfied_cfstop_rel`, and `criterion_satisfied_cfstop_curv` traces.
+These traces allow counterfactual stopping policies to be compared after a
+long-running fit.
 
 ## Per-criterion enable/disable — `convergence_criteria`
 

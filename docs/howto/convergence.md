@@ -43,8 +43,9 @@ Require multiple criteria to trigger simultaneously:
 model = VBPCA(
     n_components=5,
     composite_stop={
-        "rmsstop": [100, 1e-4, 1e-3],
-        "cfstop": [100, 1e-3, 1e-2],
+        "angle": 1e-4,
+        "rms": 1e-3,
+        "elbo_rel": 1e-4,
     },
     patience=3,
 )
@@ -56,17 +57,19 @@ model.fit(X, mask=mask)
 Hold out entries and stop when probe RMS starts increasing:
 
 ```python
-from vbpca_py import make_xprobe_mask
-
-X_train, X_probe = make_xprobe_mask(X, fraction=0.10)
-
 model = VBPCA(
     n_components=5,
     maxiters=1000,
     earlystop=True,
+    xprobe_fraction=0.10,
+    random_state=42,
 )
-model.fit(X_train, mask=~np.isnan(X_train), xprobe=X_probe)
+model.fit(X, mask=mask)
 ```
+
+When probe RMS first worsens, the returned factors are restored to the best
+probe iteration. Inspect `best_probe_iteration_`, `best_probe_rms_`, and
+`returned_iteration_`; `learning_curve_` retains the later trigger iteration.
 
 ## Troubleshooting: model won't converge
 

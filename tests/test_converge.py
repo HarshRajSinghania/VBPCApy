@@ -171,10 +171,10 @@ def test_rms_plateau_absolute_tolerance() -> None:
     }
     # We need len(rms) - 1 > window => len(rms) >= 5
     # window = 3 => compare rms[-5+?] (-(3+1) = -4) with rms[-1].
-    # older = rms[-4] = 0.3002, newer = rms[-1] = 0.3006
+    # older = rms[-4] = 0.3006, newer = rms[-1] = 0.3002
     # delta = 4e-4 < 1e-3 -> plateau.
     lc = _lc(
-        rms=[0.3000, 0.3002, 0.3004, 0.3005, 0.3006],
+        rms=[0.3010, 0.3006, 0.3004, 0.3003, 0.3002],
         prms=[0.9, 0.8, 0.75, 0.74, 0.74],
         cost=[10.0, 9.0, 8.5, 8.3, 8.2],
     )
@@ -192,16 +192,33 @@ def test_rms_plateau_relative_tolerance() -> None:
         "rmsstop": [2, 1e-12, 1e-3],
     }
     # len(rms) = 4 => len(rms)-1 = 3 > window=2, so check plateau.
-    # older = rms[-3] = 0.100, newer = rms[-1] = 0.10006
+    # older = rms[-3] = 0.10006, newer = rms[-1] = 0.100
     # delta = 6e-05; rel ≈ 6e-04 < 1e-3 -> plateau.
     lc = _lc(
-        rms=[0.15, 0.100, 0.1000, 0.10006],
+        rms=[0.15, 0.10006, 0.10003, 0.10000],
         prms=[0.9, 0.8, 0.7, 0.7],
         cost=[10.0, 9.0, 8.5, 8.4],
     )
 
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     assert "rms" in msg.lower()
+
+
+def test_rms_plateau_rejects_small_worsening() -> None:
+    """A small RMS increase does not satisfy the plateau criterion."""
+    opts = {
+        "minangle": 0.0,
+        "earlystop": False,
+        "rmsstop": [2, 1e-3, 1e-3],
+        "cfstop": None,
+    }
+    lc = _lc(
+        rms=[0.5, 0.4, 0.4001, 0.4002],
+        prms=[1.0, 0.9, 0.8, 0.7],
+        cost=[10.0, 9.0, 8.0, 7.0],
+    )
+
+    assert convergence_check(opts, lc, angle_a=1.0, sd_iter=None) == ""
 
 
 # --------------------------------------------------------------------------
@@ -237,15 +254,32 @@ def test_cost_plateau_after_rms() -> None:
         "cfstop": [2, 1e-3, 1e-3],
     }
     # len(cost) = 4 => len(cost)-1 = 3 > 2, so we check plateau.
-    # older = cost[-3] = 8.0, newer = 8.0005 -> delta = 5e-4 < 1e-3
+    # older = cost[-3] = 8.0005, newer = 8.0 -> delta = 5e-4 < 1e-3
     lc = _lc(
         rms=[0.4, 0.3, 0.25, 0.24],
         prms=[0.9, 0.8, 0.7, 0.7],
-        cost=[10.0, 8.0, 8.0, 8.0005],
+        cost=[10.0, 8.0005, 8.0002, 8.0],
     )
 
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     assert "cost" in msg.lower()
+
+
+def test_cost_plateau_rejects_small_worsening() -> None:
+    """A small negative-ELBO increase does not satisfy cost plateau."""
+    opts = {
+        "minangle": 0.0,
+        "earlystop": False,
+        "rmsstop": None,
+        "cfstop": [2, 1e-3, 1e-3],
+    }
+    lc = _lc(
+        rms=[0.5, 0.4, 0.3, 0.2],
+        prms=[1.0, 0.9, 0.8, 0.7],
+        cost=[8.0, 7.0, 7.0004, 7.0006],
+    )
+
+    assert convergence_check(opts, lc, angle_a=1.0, sd_iter=None) == ""
 
 
 # --------------------------------------------------------------------------
@@ -339,7 +373,7 @@ def test_rms_plateau_message_contains_window_info() -> None:
         "cfstop": None,
     }
     lc = _lc(
-        rms=[0.5, 0.4, 0.4001, 0.4002],
+        rms=[0.5, 0.4002, 0.4001, 0.4],
         prms=[1.0, 0.9, 0.8, 0.8],
         cost=[10.0, 9.0, 8.5, 8.4],
     )
@@ -358,7 +392,7 @@ def test_cost_plateau_message_contains_window_info() -> None:
     lc = _lc(
         rms=[0.5, 0.4, 0.3, 0.2],
         prms=[1.0, 0.9, 0.8, 0.7],
-        cost=[8.0, 7.0, 7.0004, 7.0006],
+        cost=[8.0, 7.0006, 7.0004, 7.0],
     )
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     assert "cost" in msg
@@ -370,8 +404,8 @@ def test_cost_plateau_message_contains_window_info() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_cfstop_rel_triggers_when_change_small() -> None:
-    """Relative ELBO stop fires when |ΔELBO|/|ELBO| < threshold."""
+def test_cfstop_rel_triggers_when_improvement_small() -> None:
+    """Relative free-energy stop fires on a small improving step."""
     opts = {
         "minangle": 0.0,
         "earlystop": False,
@@ -379,14 +413,28 @@ def test_cfstop_rel_triggers_when_change_small() -> None:
         "cfstop": None,
         "cfstop_rel": 1e-3,
     }
-    # |8.0001 - 8.0| / |8.0001| ≈ 1.25e-5 < 1e-3 -> trigger
+    # |8.0 - 8.0001| / |8.0| ≈ 1.25e-5 < 1e-3 -> trigger
     lc = _lc(
         rms=[0.5, 0.4],
         prms=[1.0, 0.9],
-        cost=[8.0, 8.0001],
+        cost=[8.0001, 8.0],
     )
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     assert "relative ELBO" in msg.lower() or "cfstop_rel" in msg
+
+
+def test_cfstop_rel_rejects_small_worsening() -> None:
+    """A small free-energy increase is not evidence of convergence."""
+    opts = {
+        "minangle": 0.0,
+        "earlystop": False,
+        "rmsstop": None,
+        "cfstop": None,
+        "cfstop_rel": 1e-3,
+    }
+    lc = _lc(rms=[0.5, 0.4], prms=[1.0, 0.9], cost=[8.0, 8.0001])
+
+    assert convergence_check(opts, lc, angle_a=1.0, sd_iter=None) == ""
 
 
 def test_cfstop_rel_does_not_trigger_when_change_large() -> None:
@@ -456,7 +504,7 @@ def test_cfstop_rel_message_format() -> None:
     lc = _lc(
         rms=[0.5, 0.4],
         prms=[1.0, 0.9],
-        cost=[100.0, 100.000001],
+        cost=[100.000001, 100.0],
     )
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     assert "cfstop_rel" in msg
@@ -468,8 +516,8 @@ def test_cfstop_rel_message_format() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_cfstop_curv_triggers_when_curvature_small() -> None:
-    """ELBO curvature stop fires when |Δ²ELBO| < threshold."""
+def test_cfstop_curv_triggers_when_slope_and_curvature_small() -> None:
+    """Curvature stop fires only when slope and curvature are both small."""
     opts = {
         "minangle": 0.0,
         "earlystop": False,
@@ -478,14 +526,33 @@ def test_cfstop_curv_triggers_when_curvature_small() -> None:
         "cfstop_rel": None,
         "cfstop_curv": 1e-3,
     }
-    # Δ = [-1.0, -0.9999] -> curvature = |(-0.9999) - (-1.0)| = 1e-4 < 1e-3
+    # Δ = [-5e-4, -4e-4]: both latest slope and curvature are < 1e-3.
     lc = _lc(
         rms=[0.5, 0.4, 0.3],
         prms=[1.0, 0.9, 0.8],
-        cost=[10.0, 9.0, 8.0001],
+        cost=[10.0, 9.9995, 9.9991],
     )
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     assert "curvature" in msg.lower() or "cfstop_curv" in msg
+
+
+def test_cfstop_curv_rejects_constant_large_slope() -> None:
+    """Near-zero curvature must not stop a trajectory still improving quickly."""
+    opts = {
+        "minangle": 0.0,
+        "earlystop": False,
+        "rmsstop": None,
+        "cfstop": None,
+        "cfstop_rel": None,
+        "cfstop_curv": 1e-3,
+    }
+    lc = _lc(
+        rms=[0.5, 0.4, 0.3],
+        prms=[1.0, 0.9, 0.8],
+        cost=[10.0, 9.0, 8.0],
+    )
+
+    assert convergence_check(opts, lc, angle_a=1.0, sd_iter=None) == ""
 
 
 def test_cfstop_curv_does_not_trigger_when_curvature_large() -> None:
@@ -556,11 +623,11 @@ def test_cfstop_curv_message_format() -> None:
         "cfstop_rel": None,
         "cfstop_curv": 1e-2,
     }
-    # Δ = [-1.0, -1.001] -> curvature = 0.001 < 0.01
+    # Δ = [-0.005, -0.004] -> curvature = 0.001 < 0.01
     lc = _lc(
         rms=[0.5, 0.4, 0.3],
         prms=[1.0, 0.9, 0.8],
-        cost=[10.0, 9.0, 7.999],
+        cost=[10.0, 9.995, 9.991],
     )
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     assert "cfstop_curv" in msg
@@ -584,7 +651,7 @@ def test_cost_plateau_has_priority_over_cfstop_rel() -> None:
     lc = _lc(
         rms=[0.5, 0.4, 0.3, 0.2],
         prms=[1.0, 0.9, 0.8, 0.7],
-        cost=[8.0, 7.0, 7.0004, 7.0006],
+        cost=[8.0, 7.0006, 7.0004, 7.0],
     )
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     # Cost plateau has priority (checked first)
@@ -606,7 +673,7 @@ def test_cfstop_rel_has_priority_over_cfstop_curv() -> None:
     lc = _lc(
         rms=[0.5, 0.4, 0.3],
         prms=[1.0, 0.9, 0.8],
-        cost=[10.0, 10.00001, 10.00002],
+        cost=[10.00002, 10.00001, 10.0],
     )
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     assert "cfstop_rel" in msg
@@ -630,7 +697,7 @@ def test_composite_stop_all_met() -> None:
     }
     # angle_a=1e-4 < 1e-3 ✓; rms rel change ≈ 2.5e-4 < 1e-3 ✓
     lc = _lc(
-        rms=[0.5, 0.4, 0.4001],
+        rms=[0.5, 0.4001, 0.4],
         prms=[1.0, 0.9, 0.8],
         cost=[10.0, 9.0, 8.0],
     )
@@ -674,9 +741,9 @@ def test_composite_stop_with_elbo_rel() -> None:
     }
     # All three met
     lc = _lc(
-        rms=[0.5, 0.4, 0.4001],
+        rms=[0.5, 0.4001, 0.4],
         prms=[1.0, 0.9, 0.8],
-        cost=[8.0, 8.0001, 8.00015],
+        cost=[8.00015, 8.0001, 8.0],
     )
     msg = convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
     assert "composite" in msg.lower()
@@ -846,12 +913,12 @@ def test_alternating_criteria_do_not_share_patience() -> None:
 
     # RMS alone is then satisfied. Under the old shared counter this second,
     # different criterion incorrectly exhausted patience=2.
-    lc["rms"].append(0.5001)
+    lc["rms"].append(0.4999)
     assert convergence_check(opts, lc, angle_a=1.0, sd_iter=None) == ""
     assert lc["_criterion_patience"]["angle"] == pytest.approx(0.0)
     assert lc["_criterion_patience"]["rms_plateau"] == pytest.approx(1.0)
 
-    lc["rms"].append(0.5002)
+    lc["rms"].append(0.4998)
     msg = convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
     assert "rms" in msg.lower()
 
@@ -862,13 +929,34 @@ def test_satisfaction_diagnostics_include_nonwinning_criteria() -> None:
         **_opts_with_patience(1),
         "rmsstop": [1, 1e-3, 1e-3],
     }
-    lc = _lc(rms=[0.5, 0.5001], prms=[1.0, 0.9], cost=[10.0, 9.0])
+    lc = _lc(rms=[0.5001, 0.5], prms=[1.0, 0.9], cost=[10.0, 9.0])
 
     msg = convergence_check(opts, lc, angle_a=1e-4, sd_iter=None)
 
     assert "angle" in msg.lower()
     assert lc["criterion_satisfied_angle"][-1] == pytest.approx(1.0)
     assert lc["criterion_satisfied_rms_plateau"][-1] == pytest.approx(1.0)
+
+
+def test_cost_subcriteria_have_separate_diagnostic_traces() -> None:
+    """Cost plateau, relative, and curvature hits remain distinguishable."""
+    opts = {
+        **_opts_with_patience(1),
+        "cfstop": [1, 1e-3, 1e-3],
+        "cfstop_rel": 1e-3,
+        "cfstop_curv": 1e-3,
+    }
+    lc = _lc(
+        rms=[0.5, 0.4, 0.3],
+        prms=[1.0, 0.9, 0.8],
+        cost=[8.0002, 8.0001, 8.0],
+    )
+
+    convergence_check(opts, lc, angle_a=1.0, sd_iter=None)
+
+    assert lc["criterion_satisfied_cost_plateau"][-1] == pytest.approx(1.0)
+    assert lc["criterion_satisfied_cfstop_rel"][-1] == pytest.approx(1.0)
+    assert lc["criterion_satisfied_cfstop_curv"][-1] == pytest.approx(1.0)
 
 
 def test_patience_1_is_default_behaviour() -> None:
