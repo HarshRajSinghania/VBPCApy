@@ -1248,6 +1248,7 @@ def _run_training_loop(
 
     # Cleanup internal stop marker to keep lc stable for external callers.
     training.lc.pop("_stop", None)
+    training.lc.pop("_criterion_patience", None)
 
     # Promote the accepted reason to a top-level learning-curve key. If no
     # eligible criterion stopped the loop, it exhausted maxiters.
@@ -1545,7 +1546,7 @@ def _accept_convergence_stop(ctx: IterationContext, convmsg: str | None) -> bool
         # Warmup criteria are diagnostic only. They must not leak a reason or
         # patience credit into the first eligible post-warmup iteration.
         ctx.training.lc.pop("_candidate_convergence_reason", None)
-        ctx.training.lc["_patience"] = [0.0]
+        ctx.training.lc["_criterion_patience"] = {}  # type: ignore[assignment]
         return False
     if not convmsg:
         return False

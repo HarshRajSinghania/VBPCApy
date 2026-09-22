@@ -98,15 +98,25 @@ model.fit(X_train, mask=~np.isnan(X_train), xprobe=X_probe)
 See [Convergence Criteria](../concepts/convergence.md) for a reference of all
 options and their defaults.
 
-## Prioritize ELBO over angle stopping
+## Use ELBO as the stopping gate
 
-If the subspace-angle criterion fires too early (e.g. under heavy
-missingness), put cost-based criteria first:
+If the subspace-angle criterion fires too early (for example under heavy
+missingness), disable it and the other individual criteria so ELBO is the only
+eligible numerical-convergence stop. Ordering alone is only a tie-breaker when
+multiple OR criteria are ready on the same iteration.
 
 ```python
 model = VBPCA(
     n_components=5,
     criterion_order=["cost", "composite", "rms_plateau", "angle", "earlystop", "slowing_down"],
+    convergence_criteria={
+        "angle": False,
+        "earlystop": False,
+        "rms_plateau": False,
+        "cost": True,
+        "composite": False,
+        "slowing_down": False,
+    },
     cfstop=[200, 1e-6, 1e-5],
 )
 model.fit(X, mask=mask)

@@ -37,6 +37,15 @@ DEFAULT_CRITERION_ORDER: list[str] = [
 
 _VALID_CRITERION_NAMES: frozenset[str] = frozenset(DEFAULT_CRITERION_ORDER)
 
+_REASON_TAGS_BY_CRITERION: dict[str, tuple[str, ...]] = {
+    "angle": ("angle",),
+    "earlystop": ("earlystop",),
+    "rms_plateau": ("rms_plateau",),
+    "cost": ("cost_plateau", "cfstop_rel", "cfstop_curv"),
+    "composite": ("composite",),
+    "slowing_down": ("slowing_down",),
+}
+
 
 def _coerce_int(
     val: SupportsInt | SupportsIndex | str | bytes | bytearray | None,
@@ -379,37 +388,53 @@ def _composite_stop(
     return f"Composite stop: all criteria met ({detail})."
 
 
-def _apply_patience(
-    msg: str,
+def _apply_criterion_patience(
+    checks: Mapping[str, tuple[str | None, str | None]],
+    order: Sequence[str],
+    enabled: Mapping[str, bool],
     lc: Mapping[str, Sequence[float]],
     patience: int,
-) -> str:
-    """Gate *msg* through a patience counter stored in ``lc["_patience"]``.
+) -> tuple[str, str]:
+    """Update per-criterion streaks and return the first eligible stop.
 
-    When a criterion fires (``msg`` is non-empty), the counter is
-    incremented.  The message is only returned once the counter reaches
-    *patience*.  If no criterion fires, the counter resets to zero.
-
-    Args:
-        msg: The candidate convergence message (may be empty).
-        lc: Learning-curve dict; ``lc["_patience"]`` is mutated in-place.
-        patience: Required number of consecutive satisfied iterations.
+    A streak belongs to one criterion. Alternating satisfied criteria cannot
+    jointly exhaust patience. Raw satisfaction is also appended to public
+    numeric learning-curve traces so callers can replay counterfactual stop
+    policies after a long-running fit.
 
     Returns:
-        The convergence message when patience is exhausted, otherwise
-        an empty string.
+        ``(reason_tag, message)`` for the first ordered criterion whose own
+        streak reaches ``patience``, otherwise two empty strings.
     """
-    # Obtain the mutable patience list from lc.
-    patience_list: list[float] = lc.get("_patience", [0])  # type: ignore[assignment]
+    mutable_lc = cast("dict[str, Any]", lc)
+    counts_obj = mutable_lc.setdefault("_criterion_patience", {})
+    counts = cast("dict[str, float]", counts_obj)
+    ordered = set(order)
 
-    if msg:
-        patience_list[0] = float(patience_list[0]) + 1
-        if int(patience_list[0]) >= patience:
-            return msg
-        return ""
+    rms_size = len(lc.get("rms", []))
+    for name, (tag, msg) in checks.items():
+        history_key = f"criterion_satisfied_{name}"
+        history_obj = mutable_lc.setdefault(history_key, [0.0] * max(0, rms_size - 1))
+        history = cast("list[float]", history_obj)
+        history.append(float(bool(msg)))
 
-    patience_list[0] = 0.0
-    return ""
+        eligible = name in ordered and enabled.get(name, True)
+        streak_key = tag or name
+        for reason_tag in _REASON_TAGS_BY_CRITERION[name]:
+            if reason_tag != streak_key:
+                counts[reason_tag] = 0.0
+        counts[streak_key] = (
+            counts.get(streak_key, 0.0) + 1.0 if eligible and msg else 0.0
+        )
+
+    required = max(1, patience)
+    for name in order:
+        if not enabled.get(name, True):
+            continue
+        tag, msg = checks[name]
+        if msg and int(counts.get(tag or name, 0.0)) >= required:
+            return tag or "", msg
+    return "", ""
 
 
 # ---------------------------------------------------------------------------
@@ -472,22 +497,15 @@ def convergence_check(
     order = opts.get("criterion_order") or DEFAULT_CRITERION_ORDER
     enabled: dict[str, bool] = opts.get("convergence_criteria") or {}
 
-    reason_tag = ""
-    candidate = ""
-    for name in order:
-        if not enabled.get(name, True):
-            continue
-        tag, msg = all_checks[name]
-        if msg:
-            reason_tag = tag or ""
-            candidate = msg
-            break
-
-    # Apply patience window if configured.
     patience_val = opts.get("patience")
     patience = int(patience_val) if patience_val is not None else 1
-    if patience > 1:
-        candidate = _apply_patience(candidate, lc, patience)
+    reason_tag, candidate = _apply_criterion_patience(
+        all_checks,
+        order,
+        enabled,
+        lc,
+        patience,
+    )
 
     # Store only a candidate tag here. The training loop may suppress a
     # criterion during broad-prior warmup; it promotes the tag only when the
