@@ -817,6 +817,50 @@ def test_cross_validate_components_basic() -> None:
             assert f"se_{m}" in entry
             for fold_i in range(3):
                 assert f"{m}_fold_{fold_i + 1}" in entry
+        assert 0.0 <= entry["convergence_rate"] <= 1.0
+        assert 0 < entry["mean_n_iter"] <= entry["max_n_iter"] <= 30
+        assert sum(entry["convergence_reason_counts"].values()) == 3
+        for fold_i in range(3):
+            assert f"n_iter_fold_{fold_i + 1}" in entry
+            assert f"converged_fold_{fold_i + 1}" in entry
+            assert f"convergence_reason_fold_{fold_i + 1}" in entry
+
+
+def test_cv_aggregation_preserves_mixed_convergence_diagnostics() -> None:
+    """Candidate summaries retain every fold's convergence outcome."""
+    folds = [
+        {
+            1: {
+                "rms": 1.0,
+                "prms": 1.5,
+                "cost": 2.0,
+                "n_iter": 10,
+                "converged": True,
+                "convergence_reason": "angle",
+            }
+        },
+        {
+            1: {
+                "rms": 1.2,
+                "prms": 1.7,
+                "cost": 2.2,
+                "n_iter": 20,
+                "converged": False,
+                "convergence_reason": "maxiters",
+            }
+        },
+    ]
+
+    best_k, results = ms._aggregate_cv_results([1], folds, "prms")
+
+    assert best_k == 1
+    assert results[0]["mean_n_iter"] == pytest.approx(15.0)
+    assert results[0]["max_n_iter"] == 20
+    assert results[0]["convergence_rate"] == pytest.approx(0.5)
+    assert results[0]["convergence_reason_counts"] == {"angle": 1, "maxiters": 1}
+    assert results[0]["n_iter_fold_1"] == 10
+    assert results[0]["converged_fold_2"] is False
+    assert results[0]["convergence_reason_fold_2"] == "maxiters"
 
 
 def test_cross_validate_components_rejects_training_cost_metric() -> None:
