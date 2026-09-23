@@ -670,6 +670,13 @@ def _fold_preserves_training_coverage(
 _TRACKED_METRICS: tuple[str, ...] = ("rms", "prms", "cost")
 """Metrics recorded from each candidate fit for CV aggregation."""
 
+_CONVERGENCE_FIELDS: tuple[str, ...] = (
+    "n_iter",
+    "converged",
+    "convergence_reason",
+)
+"""Scalar convergence diagnostics retained for each candidate and fold."""
+
 
 def _run_fold(  # noqa: PLR0913
     fold_i: int,
@@ -684,7 +691,7 @@ def _run_fold(  # noqa: PLR0913
     seed: int,
     n_splits: int = 1,
     verbose: int = 0,
-) -> dict[int, dict[str, float]]:
+) -> dict[int, dict[str, object]]:
     """Run one fold: mask probe entries, sweep all *k* values, return metrics.
 
     Args:
@@ -702,7 +709,7 @@ def _run_fold(  # noqa: PLR0913
         verbose: Verbosity level.
 
     Returns:
-        Dict mapping each *k* to a dict of all tracked metric values.
+        Dict mapping each *k* to tracked metrics and convergence diagnostics.
     """
     if verbose:
         logger.info("  Fold %d/%d ...", fold_i + 1, n_splits)
@@ -734,15 +741,39 @@ def _run_fold(  # noqa: PLR0913
 
     return {
         int(cast("int", t["k"])): {
-            m: float(cast("float", t[m])) for m in _TRACKED_METRICS
+            **{m: float(cast("float", t[m])) for m in _TRACKED_METRICS},
+            "n_iter": int(cast("int", t["n_iter"])),
+            "converged": bool(t["converged"]),
+            "convergence_reason": str(t["convergence_reason"]),
         }
         for t in trace
     }
 
 
+def _add_cv_convergence_summary(
+    entry: dict[str, object],
+    k: int,
+    fold_metrics: Sequence[dict[int, dict[str, object]]],
+) -> None:
+    """Add per-fold and aggregate convergence diagnostics for one candidate."""
+    candidate_folds = [fold[k] for fold in fold_metrics if k in fold]
+    iterations = [int(cast("int", fold["n_iter"])) for fold in candidate_folds]
+    converged = [bool(fold["converged"]) for fold in candidate_folds]
+    reasons = [str(fold["convergence_reason"]) for fold in candidate_folds]
+    reason_counts = {reason: reasons.count(reason) for reason in sorted(set(reasons))}
+
+    entry["mean_n_iter"] = float(np.mean(iterations)) if iterations else float("nan")
+    entry["max_n_iter"] = max(iterations, default=0)
+    entry["convergence_rate"] = float(np.mean(converged)) if converged else float("nan")
+    entry["convergence_reason_counts"] = reason_counts
+    for fold_index, fold in enumerate(candidate_folds, start=1):
+        for field in _CONVERGENCE_FIELDS:
+            entry[f"{field}_fold_{fold_index}"] = fold[field]
+
+
 def _aggregate_cv_results(
     k_list: list[int],
-    fold_metrics: list[dict[int, dict[str, float]]],
+    fold_metrics: list[dict[int, dict[str, object]]],
     selection_metric: _CVMetric,
 ) -> tuple[int, list[dict[str, object]]]:
     """Aggregate fold metrics and select *k* via the 1-SE rule.
@@ -759,14 +790,18 @@ def _aggregate_cv_results(
     Returns:
         Tuple ``(best_k, cv_results)`` where *cv_results* is a list of
         dicts with keys ``k``, per-metric ``mean_<m>``, ``std_<m>``,
-        ``se_<m>`` columns, and ``<m>_fold_<i>`` per-fold values.
+        ``se_<m>`` columns, per-fold values, and convergence summaries.
     """
     cv_results: list[dict[str, object]] = []
 
     for k in k_list:
         entry: dict[str, object] = {"k": k}
         for m in _TRACKED_METRICS:
-            vals = [fold[k][m] for fold in fold_metrics if k in fold and m in fold[k]]
+            vals = [
+                float(cast("_AllowedFloat", fold[k][m]))
+                for fold in fold_metrics
+                if k in fold and m in fold[k]
+            ]
             n = len(vals)
             std_val = float(np.std(vals, ddof=1)) if n > 1 else 0.0
             entry[f"mean_{m}"] = float(np.mean(vals)) if n > 0 else float("nan")
@@ -774,6 +809,7 @@ def _aggregate_cv_results(
             entry[f"se_{m}"] = std_val / np.sqrt(n) if n > 1 else 0.0
             for i, fold in enumerate(fold_metrics):
                 entry[f"{m}_fold_{i + 1}"] = fold.get(k, {}).get(m, float("nan"))
+        _add_cv_convergence_summary(entry, k, fold_metrics)
         cv_results.append(entry)
 
     # Apply 1-SE rule on the selection metric
@@ -809,9 +845,10 @@ def cross_validate_components(
     metric across folds is within one standard error of the global
     minimum.
 
-    All tracked metrics (rms, prms, cost) are recorded per fold regardless
-    of which metric is used for selection, so callers can compare selection
-    criteria without re-running.
+    All tracked metrics (rms, prms, cost) and convergence diagnostics are
+    recorded per fold regardless of which metric is used for selection, so
+    callers can compare selection criteria and audit fit quality without
+    re-running.
 
     Args:
         x: Dense data matrix with shape ``(n_features, n_samples)``.
@@ -829,7 +866,10 @@ def cross_validate_components(
         - ``best_k``: selected component count.
         - ``cv_results``: list of dicts (one per candidate *k*) with keys
           ``k``, ``mean_<m>``, ``std_<m>``, ``se_<m>`` for each metric,
-          and ``<m>_fold_<i>`` per-fold values.
+          and ``<m>_fold_<i>`` per-fold values. Each entry also includes
+          per-fold ``n_iter``, ``converged``, and ``convergence_reason`` plus
+          candidate-level mean/max iterations, convergence rate, and reason
+          counts.
 
     Raises:
         ValueError: If the input is sparse, ``metric`` is not ``"prms"``, no
@@ -886,7 +926,7 @@ def cross_validate_components(
     )
     fit_opts["verbose"] = 0
 
-    all_fold_metrics: list[dict[int, dict[str, float]]] = [
+    all_fold_metrics: list[dict[int, dict[str, object]]] = [
         _run_fold(
             fold_i=fold_i,
             x_base=x_arr,
