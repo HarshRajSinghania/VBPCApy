@@ -61,6 +61,25 @@ def test_conditions_isolate_cap_and_warmup_changes() -> None:
 
 
 @pytest.mark.parametrize(
+    ("n", "p", "bucket", "niter_broadprior", "maxiters"),
+    [
+        (50, 300, "wide_moderate", 200, 200),
+        (1000, 50, "tall_moderate", 200, 200),
+        (3000, 30, "tall_extreme", 200, 100),
+        (250, 250, "large_scale", 200, 200),
+    ],
+)
+def test_shipped_condition_preserves_prevalidation_control(
+    n: int, p: int, bucket: str, niter_broadprior: int, maxiters: int
+) -> None:
+    with pytest.warns(UserWarning, match=bucket):
+        config = condition_config(n, p, "shipped")
+
+    assert config["niter_broadprior"] == niter_broadprior
+    assert config["maxiters"] == maxiters
+
+
+@pytest.mark.parametrize(
     ("n", "p", "bucket", "maxiters"),
     [
         (50, 300, "wide_moderate", 1600),
