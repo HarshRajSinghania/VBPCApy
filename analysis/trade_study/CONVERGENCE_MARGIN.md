@@ -159,11 +159,13 @@ revision `68753adab5e420629ee0cbc20c319e675029a071`. Its manifest SHA-256 is
 `96f0c4332cfc0b8f374c50b2149be850038251084c45546ac5704c6a551c61f9`.
 
 Across 120 paired fits per condition, the candidate improved exact rank
-recovery from 0.825 to 0.900 (paired difference 0.075; 95% bootstrap CI 0.008
-to 0.142), rank MAE from 1.058 to 0.183 (gain 0.875; CI 0.417 to 1.383), and
-holdout RMSE from 0.848 to 0.588 (difference -0.260; CI -0.375 to -0.157).
-Coverage was unchanged within uncertainty. The selected-fit budget-hit rate
-fell from 100% to 5%.
+recovery from 0.825 to 0.900 (paired difference 0.075; 95% regime-stratified
+bootstrap CI 0.042 to 0.108), rank MAE from 1.058 to 0.183 (gain 0.875; CI
+0.725 to 1.017), and holdout RMSE from 0.848 to 0.588 (difference -0.260; CI
+-0.296 to -0.224). Coverage was unchanged within uncertainty. The selected-fit
+budget-hit rate fell from 100% to 5%. The intervals were regenerated from the
+retained checkpoints after #172 corrected the reducer to preserve the fixed
+regime composition; point estimates were unchanged and no fits were rerun.
 
 The remaining six selected-fit budget hits comprised two microbiome and two
 wide-complete replicates at the 1600-iteration cap and two tall-extreme-MNAR

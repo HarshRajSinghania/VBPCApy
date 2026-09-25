@@ -45,6 +45,20 @@ def _analysis_module():
 margin = _analysis_module()
 
 
+def _paired_row(regime: str, rep: int, *, selected_k: int = 2) -> dict[str, object]:
+    return {
+        "regime": regime,
+        "rep": rep,
+        "true_rank": 2,
+        "selected_k": selected_k,
+        "rank_mae": abs(selected_k - 2),
+        "holdout_rmse": 1.0,
+        "coverage_95": 0.95,
+        "best_k_iters": 10.0,
+        "best_k_budget_hit": 0.0,
+    }
+
+
 def test_condition_index_resolves_against_manifest_selection() -> None:
     manifest = {"conditions": ["shipped", "no_warmup_cap400"]}
 
@@ -52,6 +66,28 @@ def test_condition_index_resolves_against_manifest_selection() -> None:
     assert margin._condition_at_index(manifest, 1) == "no_warmup_cap400"
     with pytest.raises(ValueError, match=r"\[0, 2\)"):
         margin._condition_at_index(manifest, 2)
+
+
+def test_bootstrap_preserves_fixed_regime_composition() -> None:
+    values = np.asarray([0.0, 0.0, 10.0, 10.0])
+    strata = np.asarray(["first", "first", "second", "second"])
+
+    interval = margin._bootstrap_stratified_mean_interval(
+        values,
+        strata,
+        rng=np.random.default_rng(100),
+        n_resamples=100,
+    )
+
+    assert interval == [5.0, 5.0]
+
+
+def test_paired_summary_rejects_different_replicate_keys() -> None:
+    candidate = [_paired_row("first", 0)]
+    reference = [_paired_row("second", 0)]
+
+    with pytest.raises(ValueError, match="replicate keys differ"):
+        margin._paired_summary(candidate, reference, n_resamples=10, seed=100)
 
 
 def test_summarize_loads_only_manifest_conditions(tmp_path, monkeypatch) -> None:
