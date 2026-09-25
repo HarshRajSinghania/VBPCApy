@@ -29,6 +29,7 @@ def test_profiles_route_only_to_affected_buckets(profile: str) -> None:
         "wide_moderate",
         "tall_moderate",
         "tall_extreme",
+        "large_scale",
     }
     assert [regime["seed"] for regime in manifest["regimes"]] == list(
         range(100, 100 + len(manifest["regimes"]))
