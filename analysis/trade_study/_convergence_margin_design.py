@@ -33,6 +33,16 @@ _BUCKET_MARGIN_CAPS = {
     "large_scale": 400,
 }
 
+# Freeze the pre-validation control's two studied fields. Public recommendation
+# defaults can change after the evidence gate without silently redefining the
+# historical "shipped" condition or any one-factor ablation derived from it.
+_LEGACY_SHIPPED_MARGIN = {
+    "wide_moderate": {"niter_broadprior": 200, "maxiters": 200},
+    "tall_moderate": {"niter_broadprior": 200, "maxiters": 200},
+    "tall_extreme": {"niter_broadprior": 200, "maxiters": 100},
+    "large_scale": {"niter_broadprior": 200, "maxiters": 200},
+}
+
 _ALL_CRITERIA_FALSE = {
     "angle": False,
     "earlystop": False,
@@ -195,6 +205,9 @@ def condition_config(n: int, p: int, condition: str) -> dict[str, Any]:
         msg = f"unknown convergence-margin condition {condition!r}"
         raise ValueError(msg)
     config = recommend_config(n=n, p=p)
+    bucket = vbpca_defaults._bucket(n, p)  # noqa: SLF001
+    if bucket in _LEGACY_SHIPPED_MARGIN:
+        config.update(_LEGACY_SHIPPED_MARGIN[bucket])
     if condition == "shipped":
         return config
     if condition == "cap400":
@@ -211,7 +224,6 @@ def condition_config(n: int, p: int, condition: str) -> dict[str, Any]:
         config["niter_broadprior"] = 0
         config["maxiters"] = 800
     elif condition == "bucket_margin_candidate":
-        bucket = vbpca_defaults._bucket(n, p)  # noqa: SLF001
         try:
             maxiters = _BUCKET_MARGIN_CAPS[bucket]
         except KeyError as exc:

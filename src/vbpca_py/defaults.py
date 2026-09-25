@@ -51,6 +51,17 @@ grid the original three buckets were tuned and replicated against — a
 real, validated recommendation for that aspect ratio, just a coarser one
 (warned about accordingly).
 
+**Convergence-margin validation (#133/#166):** four coarse buckets originally
+shipped with an iteration cap no larger than their broad-prior warmup, so no
+numerical convergence criterion could fire. A preregistered paired validation
+across ten complete/MCAR/MNAR/block regimes (12 replicates each) supports
+zero warmup with bucket-specific caps for ``wide_moderate``,
+``tall_moderate``, ``tall_extreme``, and ``large_scale``. Exact rank recovery
+improved from 82.5% to 90.0%, rank MAE from 1.058 to 0.183, and holdout RMSE
+from 0.848 to 0.588; selected-fit budget hits fell from 100% to 5%. The
+remaining hits occurred in wide and tall-extreme MNAR settings, so callers
+should still inspect convergence diagnostics for difficult data.
+
 The returned dict is intended to be splatted into the estimator, e.g.::
 
     from vbpca_py import VBPCA, recommend_config
@@ -150,14 +161,15 @@ _BUCKET_CONFIGS: dict[str, dict[str, Any]] = {
         "minangle": 6.967374686269853e-05,
         "cfstop_rel": 0.0006289465573514163,
     },
-    # Validated at microbiome (n=50, p=300, p/n=6).
+    # Initially tuned at microbiome (n=50, p=300, p/n=6); convergence margin
+    # replicated across three held-out wide regimes (#133/#166).
     "wide_moderate": {
         "hp_va": 0.5487383020286924,
         "hp_vb": 0.6918982787407163,
         "hp_v": 0.6519647398900055,
         "va_init": 2250.4504015109924,
         "xprobe_fraction": 0.17804480533688397,
-        "niter_broadprior": 200,
+        "niter_broadprior": 0,
         "criterion_order": [
             "angle",
             "earlystop",
@@ -167,19 +179,21 @@ _BUCKET_CONFIGS: dict[str, dict[str, Any]] = {
             "slowing_down",
         ],
         "convergence_criteria": _ALL_CRITERIA_TRUE,
-        "maxiters": 200,
+        "maxiters": 1600,
         "patience": 2,
         "rmsstop": [200, 0.003702216843854189, 0.0001644115991233856],
         "minangle": 9.539286230740105e-05,
         "cfstop_rel": 0.0009148652415765465,
     },
-    "tall_extreme": {  # validated at ecological: n=3000, p=30, n/p=100
+    # Initially tuned at ecological (n=3000, p=30, n/p=100); convergence
+    # margin replicated across three tall-extreme regimes (#133/#166).
+    "tall_extreme": {
         "hp_va": 0.695977246351637,
         "hp_vb": 0.40895885488482575,
         "hp_v": 0.1733025871276451,
         "va_init": 1572.8060562841497,
         "xprobe_fraction": 0.06256072454114883,
-        "niter_broadprior": 200,
+        "niter_broadprior": 0,
         "criterion_order": [
             "angle",
             "earlystop",
@@ -189,19 +203,21 @@ _BUCKET_CONFIGS: dict[str, dict[str, Any]] = {
             "slowing_down",
         ],
         "convergence_criteria": _ALL_CRITERIA_TRUE,
-        "maxiters": 100,
+        "maxiters": 800,
         "patience": 2,
         "rmsstop": [200, 0.0037467515336500863, 0.006262340557985221],
         "minangle": 6.35094015773993e-05,
         "cfstop_rel": 4.53135567319468e-05,
     },
-    "tall_moderate": {  # validated at cultural: n=1000, p=50, n/p=20
+    # Initially tuned at cultural (n=1000, p=50, n/p=20); convergence margin
+    # replicated across three tall-moderate regimes (#133/#166).
+    "tall_moderate": {
         "hp_va": 0.5487383020286924,
         "hp_vb": 0.6918982787407163,
         "hp_v": 0.6519647398900055,
         "va_init": 2250.4504015109924,
         "xprobe_fraction": 0.17804480533688397,
-        "niter_broadprior": 200,
+        "niter_broadprior": 0,
         "criterion_order": [
             "angle",
             "earlystop",
@@ -211,7 +227,7 @@ _BUCKET_CONFIGS: dict[str, dict[str, Any]] = {
             "slowing_down",
         ],
         "convergence_criteria": _ALL_CRITERIA_TRUE,
-        "maxiters": 200,
+        "maxiters": 400,
         "patience": 2,
         "rmsstop": [200, 0.003702216843854189, 0.0001644115991233856],
         "minangle": 9.539286230740105e-05,
@@ -224,6 +240,7 @@ _BUCKET_CONFIGS: dict[str, dict[str, Any]] = {
 # data is not incorrectly described as wide and so future retuning can separate
 # the two without another public API change.
 _BUCKET_CONFIGS["large_scale"] = copy.deepcopy(_BUCKET_CONFIGS["wide_moderate"])
+_BUCKET_CONFIGS["large_scale"]["maxiters"] = 400
 
 _SMALLP_MAX_P = 30
 _TRANS_MAX_P = 70
