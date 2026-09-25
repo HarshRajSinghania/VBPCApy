@@ -79,3 +79,27 @@ Monitor with `squeue -u "$USER"`, then inspect completed jobs with
 array tasks succeed, run `summarize` as above. Advance only nondominated
 candidates to a new `confirm` manifest with distinct seeds; do not edit or
 reuse the screen manifest.
+
+## Selected-candidate confirmation
+
+Keep the shipped configuration as the control and name only candidates that
+survived screening. Set the reference explicitly when the practical
+`cap800` screen reference is not among the selected conditions. For example:
+
+```bash
+"${VBPCA_PYTHON}" -m analysis.trade_study.validate_convergence_margins \
+  manifest --profile confirm --n-reps 8 --seed 20261022 \
+  --conditions shipped no_warmup_cap400 \
+  --reference-condition shipped \
+  --output "${VBPCA_MARGIN_MANIFEST}"
+export VBPCA_MARGIN_MANIFEST_SHA256="$(sha256sum "${VBPCA_MARGIN_MANIFEST}" | cut -d ' ' -f 1)"
+
+# Two selected conditions means array indices 0 and 1. Indices always resolve
+# against the ordered condition list stored in the immutable manifest.
+sbatch --array=0-1%2 \
+  --export=ALL,VBPCA_REPO_ROOT,VBPCA_TRADE_STUDY_ROOT,VBPCA_PYTHON,VBPCA_MARGIN_MANIFEST,VBPCA_MARGIN_OUTPUT_DIR,VBPCA_REVISION,VBPCA_TRADE_STUDY_REVISION,VBPCA_MARGIN_MANIFEST_SHA256 \
+  analysis/rockfish/convergence_margin_shared.sbatch
+```
+
+The reducer reads the same manifest and therefore validates and compares only
+those selected checkpoints.
