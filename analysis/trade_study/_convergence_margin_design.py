@@ -206,6 +206,8 @@ def build_manifest(
     *,
     n_reps: int,
     seed: int,
+    conditions: tuple[str, ...] = CONDITIONS,
+    reference_condition: str = REFERENCE_CONDITION,
 ) -> dict[str, Any]:
     """Build a JSON-compatible immutable convergence-margin manifest.
 
@@ -213,14 +215,28 @@ def build_manifest(
         Validated manifest mapping.
 
     Raises:
-        ValueError: If the profile or replicate count is invalid, or if a
-            regime does not route to an affected bucket.
+        ValueError: If the profile, replicate count, condition selection, or
+            reference is invalid, or if a regime does not route to an
+            affected bucket.
     """
     if profile not in REGIME_PROFILES:
         msg = f"unknown profile {profile!r}; choose from {tuple(REGIME_PROFILES)}"
         raise ValueError(msg)
     if n_reps < 1:
         msg = f"n_reps must be positive, got {n_reps}"
+        raise ValueError(msg)
+    if not conditions:
+        msg = "conditions must contain at least one registered condition"
+        raise ValueError(msg)
+    if len(set(conditions)) != len(conditions):
+        msg = "conditions must not contain duplicates"
+        raise ValueError(msg)
+    unknown_conditions = set(conditions).difference(CONDITIONS)
+    if unknown_conditions:
+        msg = f"unknown convergence-margin conditions: {sorted(unknown_conditions)}"
+        raise ValueError(msg)
+    if reference_condition not in conditions:
+        msg = f"reference condition {reference_condition!r} is absent from conditions"
         raise ValueError(msg)
 
     regimes: list[dict[str, Any]] = []
@@ -241,8 +257,8 @@ def build_manifest(
         "profile": profile,
         "n_reps": n_reps,
         "seed": seed,
-        "reference_condition": REFERENCE_CONDITION,
-        "conditions": list(CONDITIONS),
+        "reference_condition": reference_condition,
+        "conditions": list(conditions),
         "regimes": regimes,
     }
 
@@ -259,11 +275,19 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     if manifest.get("design_version") != DESIGN_VERSION:
         msg = f"unsupported design_version {manifest.get('design_version')!r}"
         raise ValueError(msg)
-    if tuple(manifest.get("conditions", ())) != CONDITIONS:
-        msg = "manifest conditions differ from the immutable design"
+    conditions = manifest.get("conditions")
+    if not isinstance(conditions, list) or not conditions:
+        msg = "manifest conditions must be a non-empty list"
         raise ValueError(msg)
-    if manifest.get("reference_condition") != REFERENCE_CONDITION:
-        msg = "manifest reference condition differs from the immutable design"
+    if len(set(conditions)) != len(conditions):
+        msg = "manifest conditions must not contain duplicates"
+        raise ValueError(msg)
+    unknown_conditions = set(conditions).difference(CONDITIONS)
+    if unknown_conditions:
+        msg = f"manifest contains unknown conditions: {sorted(unknown_conditions)}"
+        raise ValueError(msg)
+    if manifest.get("reference_condition") not in conditions:
+        msg = "manifest reference condition is absent from conditions"
         raise ValueError(msg)
     if int(manifest.get("n_reps", 0)) < 1:
         msg = "manifest n_reps must be positive"

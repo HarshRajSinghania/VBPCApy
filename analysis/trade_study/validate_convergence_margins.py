@@ -3,7 +3,7 @@
 
 The study is paired by regime and replicate. It compares the exact shipped
 configuration with larger iteration caps, shorter warmups, and a forced
-800-iteration diagnostic. Results are checkpointed once per condition so six
+800-iteration diagnostic. Results are checkpointed once per condition so
 Rockfish shared-array tasks can run independently.
 """
 
@@ -30,6 +30,7 @@ from trade_study import (
 
 from ._convergence_margin_design import (
     CONDITIONS,
+    REFERENCE_CONDITION,
     build_manifest,
     condition_config,
     validate_manifest,
@@ -63,6 +64,14 @@ def _load_manifest(path: Path) -> dict[str, Any]:
 
 def _manifest_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _condition_at_index(manifest: dict[str, Any], index: int) -> str:
+    conditions = tuple(str(condition) for condition in manifest["conditions"])
+    if not 0 <= index < len(conditions):
+        msg = f"condition-index must be in [0, {len(conditions)}) for this manifest"
+        raise ValueError(msg)
+    return conditions[index]
 
 
 def _condition_grid(manifest: dict[str, Any], condition: str) -> list[dict[str, Any]]:
@@ -121,9 +130,17 @@ def write_manifest(
     profile: str,
     n_reps: int,
     seed: int,
+    conditions: tuple[str, ...],
+    reference_condition: str,
 ) -> None:
     """Write one immutable manifest atomically."""
-    manifest = build_manifest(profile, n_reps=n_reps, seed=seed)
+    manifest = build_manifest(
+        profile,
+        n_reps=n_reps,
+        seed=seed,
+        conditions=conditions,
+        reference_condition=reference_condition,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(f"{output.suffix}.tmp.{os.getpid()}")
     temporary.write_text(json.dumps(manifest, indent=2) + "\n")
@@ -338,15 +355,16 @@ def summarize(
     """
     manifest = _load_manifest(manifest_path)
     n_reps = int(manifest["n_reps"])
+    conditions = tuple(str(condition) for condition in manifest["conditions"])
     rows: list[dict[str, Any]] = []
-    for condition in CONDITIONS:
+    for condition in conditions:
         grid = _condition_grid(manifest, condition)
         table = load_results(output_dir / condition)
         _require_complete_table(table, grid, n_reps)
         rows.extend(_score_rows(table))
 
     by_condition: dict[str, Any] = {}
-    for condition in CONDITIONS:
+    for condition in conditions:
         condition_rows = [row for row in rows if row["condition"] == condition]
         by_condition[condition] = {
             "overall": _means(condition_rows),
@@ -367,7 +385,7 @@ def summarize(
             n_resamples=n_resamples,
             seed=int(manifest["seed"]) + index * 10_003,
         )
-        for index, condition in enumerate(CONDITIONS)
+        for index, condition in enumerate(conditions)
         if condition != reference_name
     }
     result = {
@@ -396,6 +414,17 @@ def main() -> None:
     manifest_parser.add_argument("--profile", choices=("smoke", "screen", "confirm"))
     manifest_parser.add_argument("--n-reps", type=int, required=True)
     manifest_parser.add_argument("--seed", type=int, default=20260922)
+    manifest_parser.add_argument(
+        "--conditions",
+        nargs="+",
+        choices=CONDITIONS,
+        default=CONDITIONS,
+    )
+    manifest_parser.add_argument(
+        "--reference-condition",
+        choices=CONDITIONS,
+        default=REFERENCE_CONDITION,
+    )
     manifest_parser.add_argument("--output", type=Path, required=True)
 
     run_parser = subparsers.add_parser("run-condition")
@@ -419,15 +448,15 @@ def main() -> None:
             profile=args.profile,
             n_reps=args.n_reps,
             seed=args.seed,
+            conditions=tuple(args.conditions),
+            reference_condition=args.reference_condition,
         )
         return
     if args.command == "run-condition":
         condition = args.condition
         if args.condition_index is not None:
-            if not 0 <= args.condition_index < len(CONDITIONS):
-                msg = f"condition-index must be in [0, {len(CONDITIONS)})"
-                raise ValueError(msg)
-            condition = CONDITIONS[args.condition_index]
+            manifest = _load_manifest(args.manifest)
+            condition = _condition_at_index(manifest, args.condition_index)
         run_condition(
             args.manifest,
             args.output_dir,

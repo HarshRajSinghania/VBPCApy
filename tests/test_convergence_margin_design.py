@@ -66,11 +66,59 @@ def test_condition_configs_do_not_share_mutable_values() -> None:
     assert second["convergence_criteria"]["angle"] is True
 
 
-def test_manifest_validation_rejects_design_drift() -> None:
-    manifest = build_manifest("screen", n_reps=1, seed=10)
-    manifest["conditions"] = ["shipped"]
+def test_manifest_allows_selected_conditions_and_reference() -> None:
+    manifest = build_manifest(
+        "confirm",
+        n_reps=8,
+        seed=20,
+        conditions=("shipped", "no_warmup_cap400"),
+        reference_condition="shipped",
+    )
 
-    with pytest.raises(ValueError, match="conditions differ"):
+    assert manifest["conditions"] == ["shipped", "no_warmup_cap400"]
+    assert manifest["reference_condition"] == "shipped"
+    validate_manifest(manifest)
+
+
+@pytest.mark.parametrize(
+    ("conditions", "reference", "match"),
+    [
+        ((), "shipped", "at least one"),
+        (("shipped", "shipped"), "shipped", "duplicates"),
+        (("unknown",), "unknown", "unknown convergence-margin"),
+        (("shipped",), "cap800", "absent from conditions"),
+    ],
+)
+def test_build_manifest_rejects_invalid_condition_selection(
+    conditions: tuple[str, ...], reference: str, match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        build_manifest(
+            "confirm",
+            n_reps=1,
+            seed=10,
+            conditions=conditions,
+            reference_condition=reference,
+        )
+
+
+@pytest.mark.parametrize(
+    ("conditions", "reference", "match"),
+    [
+        ([], "shipped", "non-empty"),
+        (["shipped", "shipped"], "shipped", "duplicates"),
+        (["shipped", "unknown"], "shipped", "unknown conditions"),
+        (["shipped"], "cap800", "absent from conditions"),
+    ],
+)
+def test_manifest_validation_rejects_invalid_condition_selection(
+    conditions: list[str], reference: str, match: str
+) -> None:
+    manifest = build_manifest("screen", n_reps=1, seed=10)
+    manifest["conditions"] = conditions
+    manifest["reference_condition"] = reference
+
+    with pytest.raises(ValueError, match=match):
         validate_manifest(manifest)
 
 
