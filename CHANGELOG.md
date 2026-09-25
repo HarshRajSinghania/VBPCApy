@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callers can audit CV fit quality and iteration-budget saturation (#159).
 
 ### Fixed
+- Convergence-margin confidence intervals now use a paired, regime-stratified
+  bootstrap that preserves the fixed validation design instead of allowing
+  pooled bootstrap draws to change the regime composition (#172).
 - Dense probe generation now copies an explicit observation mask before
   intersecting it with finite data, so caller-owned and read-only masks are
   preserved (#157).

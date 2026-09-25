@@ -260,16 +260,35 @@ def _means(rows: list[dict[str, Any]]) -> dict[str, float | int]:
     return output
 
 
-def _bootstrap_mean_interval(
+def _bootstrap_stratified_mean_interval(
     values: np.ndarray,
+    strata: np.ndarray,
     *,
     rng: np.random.Generator,
     n_resamples: int,
 ) -> list[float]:
+    """Bootstrap a paired mean while preserving fixed design strata."""
+    if values.ndim != 1 or strata.ndim != 1 or values.size != strata.size:
+        msg = "bootstrap values and strata must be one-dimensional and aligned"
+        raise ValueError(msg)
     if values.size == 0:
         return [float("nan"), float("nan")]
-    indices = rng.integers(0, values.size, size=(n_resamples, values.size))
-    means = values[indices].mean(axis=1)
+
+    unique_strata, counts = np.unique(strata, return_counts=True)
+    if not np.all(counts == counts[0]):
+        msg = "paired bootstrap requires equal replicate counts per regime"
+        raise ValueError(msg)
+
+    stratum_means = np.empty((n_resamples, unique_strata.size), dtype=float)
+    for index, stratum in enumerate(unique_strata):
+        stratum_values = values[strata == stratum]
+        sample_indices = rng.integers(
+            0,
+            stratum_values.size,
+            size=(n_resamples, stratum_values.size),
+        )
+        stratum_means[:, index] = stratum_values[sample_indices].mean(axis=1)
+    means = stratum_means.mean(axis=1)
     return [float(value) for value in np.quantile(means, [0.025, 0.975])]
 
 
@@ -280,11 +299,19 @@ def _paired_summary(
     n_resamples: int,
     seed: int,
 ) -> dict[str, Any]:
+    candidate_keys = [(row["regime"], row["rep"]) for row in candidate]
     reference_by_key = {(row["regime"], row["rep"]): row for row in reference}
-    pairs = [(row, reference_by_key[row["regime"], row["rep"]]) for row in candidate]
-    if len(pairs) != len(reference) or len(reference_by_key) != len(reference):
-        msg = "candidate/reference replicate keys are not one-to-one"
+    if len(set(candidate_keys)) != len(candidate_keys):
+        msg = "candidate replicate keys are not one-to-one"
         raise ValueError(msg)
+    if len(reference_by_key) != len(reference):
+        msg = "reference replicate keys are not one-to-one"
+        raise ValueError(msg)
+    if set(candidate_keys) != set(reference_by_key):
+        msg = "candidate/reference replicate keys differ"
+        raise ValueError(msg)
+    pairs = [(row, reference_by_key[row["regime"], row["rep"]]) for row in candidate]
+    strata = np.asarray([row["regime"] for row, _reference in pairs])
 
     candidate_exact = np.asarray([
         int(round(float(row["selected_k"]))) == int(row["true_rank"])
@@ -334,8 +361,9 @@ def _paired_summary(
     rng = np.random.default_rng(seed)
     for name, values in differences.items():
         output[name] = float(np.mean(values))
-        output[f"{name}_ci95"] = _bootstrap_mean_interval(
+        output[f"{name}_ci95"] = _bootstrap_stratified_mean_interval(
             values,
+            strata,
             rng=rng,
             n_resamples=n_resamples,
         )
