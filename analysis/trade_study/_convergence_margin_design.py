@@ -12,7 +12,7 @@ DESIGN_VERSION = "v2_post_warmup_margin"
 MANIFEST_VERSION = "vbpca.convergence-margin.v2"
 REFERENCE_CONDITION = "cap800"
 
-CONDITIONS = (
+DEFAULT_CONDITIONS = (
     "shipped",
     "cap400",
     "cap800",
@@ -20,6 +20,7 @@ CONDITIONS = (
     "no_warmup_cap400",
     "forced800",
 )
+CONDITIONS = (*DEFAULT_CONDITIONS, "no_warmup_cap800")
 
 _ALL_CRITERIA_FALSE = {
     "angle": False,
@@ -195,6 +196,9 @@ def condition_config(n: int, p: int, condition: str) -> dict[str, Any]:
     elif condition == "no_warmup_cap400":
         config["niter_broadprior"] = 0
         config["maxiters"] = 400
+    elif condition == "no_warmup_cap800":
+        config["niter_broadprior"] = 0
+        config["maxiters"] = 800
     elif condition == "forced800":
         config["maxiters"] = 800
         config["convergence_criteria"] = copy.deepcopy(_ALL_CRITERIA_FALSE)
@@ -206,7 +210,7 @@ def build_manifest(
     *,
     n_reps: int,
     seed: int,
-    conditions: tuple[str, ...] = CONDITIONS,
+    conditions: tuple[str, ...] = DEFAULT_CONDITIONS,
     reference_condition: str = REFERENCE_CONDITION,
 ) -> dict[str, Any]:
     """Build a JSON-compatible immutable convergence-margin manifest.

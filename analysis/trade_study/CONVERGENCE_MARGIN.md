@@ -103,3 +103,16 @@ sbatch --array=0-1%2 \
 
 The reducer reads the same manifest and therefore validates and compares only
 those selected checkpoints.
+
+The original smoke/screen design remains six conditions. If its selected
+no-warmup candidate still reaches the 400-iteration cap in confirmation, the
+registered opt-in `no_warmup_cap800` condition isolates the remaining cap
+effect without changing that original design:
+
+```bash
+"${VBPCA_PYTHON}" -m analysis.trade_study.validate_convergence_margins \
+  manifest --profile confirm --n-reps 8 --seed 20261022 \
+  --conditions no_warmup_cap400 no_warmup_cap800 \
+  --reference-condition no_warmup_cap400 \
+  --output "${VBPCA_MARGIN_MANIFEST}"
+```

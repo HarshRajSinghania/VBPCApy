@@ -16,6 +16,7 @@ MODULE = run_path(
     )
 )
 CONDITIONS = MODULE["CONDITIONS"]
+DEFAULT_CONDITIONS = MODULE["DEFAULT_CONDITIONS"]
 build_manifest = MODULE["build_manifest"]
 condition_config = MODULE["condition_config"]
 validate_manifest = MODULE["validate_manifest"]
@@ -35,6 +36,7 @@ def test_profiles_route_only_to_affected_buckets(profile: str) -> None:
         range(100, 100 + len(manifest["regimes"]))
     )
     validate_manifest(manifest)
+    assert manifest["conditions"] == list(DEFAULT_CONDITIONS)
 
 
 def test_conditions_isolate_cap_and_warmup_changes() -> None:
@@ -49,6 +51,9 @@ def test_conditions_isolate_cap_and_warmup_changes() -> None:
     assert configs["warmup50_cap400"]["niter_broadprior"] == 50
     assert configs["warmup50_cap400"]["maxiters"] == 400
     assert configs["no_warmup_cap400"]["niter_broadprior"] == 0
+    assert configs["no_warmup_cap400"]["maxiters"] == 400
+    assert configs["no_warmup_cap800"]["niter_broadprior"] == 0
+    assert configs["no_warmup_cap800"]["maxiters"] == 800
     assert configs["forced800"]["maxiters"] == 800
     assert not any(configs["forced800"]["convergence_criteria"].values())
 
