@@ -30,6 +30,7 @@ from trade_study import (
 
 from ._convergence_margin_design import (
     CONDITIONS,
+    DEFAULT_CONDITIONS,
     REFERENCE_CONDITION,
     build_manifest,
     condition_config,
@@ -418,7 +419,7 @@ def main() -> None:
         "--conditions",
         nargs="+",
         choices=CONDITIONS,
-        default=CONDITIONS,
+        default=DEFAULT_CONDITIONS,
     )
     manifest_parser.add_argument(
         "--reference-condition",
