@@ -57,7 +57,7 @@ output checksums with every retained result set. Large replicated runs should
 be sharded on Rockfish and merged only after every shard passes schema and
 completeness checks.
 
-The focused post-warmup study for the three cap-invalid routing buckets is
+The focused post-warmup study for the four cap-invalid routing buckets is
 specified in
 [`trade_study/CONVERGENCE_MARGIN.md`](trade_study/CONVERGENCE_MARGIN.md). Its
 condition-level checkpoints and paired reducer must be used before changing

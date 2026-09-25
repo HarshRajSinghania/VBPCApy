@@ -8,8 +8,8 @@ from typing import Any
 from vbpca_py import defaults as vbpca_defaults
 from vbpca_py import recommend_config
 
-DESIGN_VERSION = "v1_post_warmup_margin"
-MANIFEST_VERSION = "vbpca.convergence-margin.v1"
+DESIGN_VERSION = "v2_post_warmup_margin"
+MANIFEST_VERSION = "vbpca.convergence-margin.v2"
 REFERENCE_CONDITION = "cap800"
 
 CONDITIONS = (
@@ -57,6 +57,13 @@ REGIME_PROFILES: dict[str, dict[str, dict[str, Any]]] = {
             "missingness": "complete",
             "noise_std": 0.5,
         },
+        "large_scale_smoke": {
+            "n": 210,
+            "p": 210,
+            "true_rank": 2,
+            "missingness": "complete",
+            "noise_std": 0.5,
+        },
     },
     "screen": {
         "microbiome": {
@@ -77,6 +84,13 @@ REGIME_PROFILES: dict[str, dict[str, dict[str, Any]]] = {
             "n": 3000,
             "p": 30,
             "true_rank": 3,
+            "missingness": "complete",
+            "noise_std": 0.5,
+        },
+        "single_cell": {
+            "n": 500,
+            "p": 500,
+            "true_rank": 10,
             "missingness": "complete",
             "noise_std": 0.5,
         },
@@ -145,6 +159,13 @@ REGIME_PROFILES: dict[str, dict[str, dict[str, Any]]] = {
             "missingness": "mnar_censored",
             "noise_std": 1.0,
         },
+        "large_scale_mcar": {
+            "n": 250,
+            "p": 250,
+            "true_rank": 5,
+            "missingness": "mcar",
+            "noise_std": 0.5,
+        },
     },
 }
 
@@ -203,7 +224,7 @@ def build_manifest(
         raise ValueError(msg)
 
     regimes: list[dict[str, Any]] = []
-    affected = {"wide_moderate", "tall_moderate", "tall_extreme"}
+    affected = {"wide_moderate", "tall_moderate", "tall_extreme", "large_scale"}
     for index, (name, raw) in enumerate(REGIME_PROFILES[profile].items()):
         regime = {"name": name, **copy.deepcopy(raw)}
         bucket = vbpca_defaults._bucket(regime["n"], regime["p"])  # noqa: SLF001
