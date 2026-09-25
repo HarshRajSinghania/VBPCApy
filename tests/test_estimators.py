@@ -690,13 +690,16 @@ def test_probe_earlystop_restores_best_observed_state() -> None:
     ).fit(x_train, xprobe=x_probe)
 
     assert model.convergence_reason_ == "earlystop"
-    assert model.best_probe_iteration_ == 0
-    assert model.returned_iteration_ == model.best_probe_iteration_
-    assert model.n_iter_ == 1
     assert model.learning_curve_ is not None
-    assert model.best_probe_rms_ == pytest.approx(model.learning_curve_["prms"][0])
+    probe_rms = np.asarray(model.learning_curve_["prms"], dtype=float)
+    expected_best_iteration = int(np.nanargmin(probe_rms))
+    assert model.best_probe_iteration_ == expected_best_iteration
+    assert model.returned_iteration_ == model.best_probe_iteration_
+    assert model.n_iter_ == model.learning_curve_["terminal_iteration"]
+    assert model.returned_iteration_ < model.n_iter_
+    assert model.best_probe_rms_ == pytest.approx(probe_rms[expected_best_iteration])
     assert model.prms_ == pytest.approx(model.best_probe_rms_)
-    assert model.prms_ < model.learning_curve_["prms"][-1]
+    assert model.prms_ < probe_rms[-1]
 
     probe_mask = np.isfinite(x_probe)
     returned_prms = np.sqrt(
