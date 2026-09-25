@@ -54,8 +54,34 @@ def test_conditions_isolate_cap_and_warmup_changes() -> None:
     assert configs["no_warmup_cap400"]["maxiters"] == 400
     assert configs["no_warmup_cap800"]["niter_broadprior"] == 0
     assert configs["no_warmup_cap800"]["maxiters"] == 800
+    assert configs["bucket_margin_candidate"]["niter_broadprior"] == 0
+    assert configs["bucket_margin_candidate"]["maxiters"] == 1600
     assert configs["forced800"]["maxiters"] == 800
     assert not any(configs["forced800"]["convergence_criteria"].values())
+
+
+@pytest.mark.parametrize(
+    ("n", "p", "bucket", "maxiters"),
+    [
+        (50, 300, "wide_moderate", 1600),
+        (1000, 50, "tall_moderate", 400),
+        (3000, 30, "tall_extreme", 800),
+        (250, 250, "large_scale", 400),
+    ],
+)
+def test_bucket_margin_candidate_uses_preregistered_cap(
+    n: int, p: int, bucket: str, maxiters: int
+) -> None:
+    with pytest.warns(UserWarning, match=bucket):
+        config = condition_config(n, p, "bucket_margin_candidate")
+
+    assert config["niter_broadprior"] == 0
+    assert config["maxiters"] == maxiters
+
+
+def test_bucket_margin_candidate_rejects_unaffected_bucket() -> None:
+    with pytest.raises(ValueError, match="applies only"):
+        condition_config(100, 20, "bucket_margin_candidate")
 
 
 def test_condition_configs_do_not_share_mutable_values() -> None:
@@ -82,6 +108,22 @@ def test_manifest_allows_selected_conditions_and_reference() -> None:
 
     assert manifest["conditions"] == ["shipped", "no_warmup_cap400"]
     assert manifest["reference_condition"] == "shipped"
+    validate_manifest(manifest)
+
+
+def test_manifest_allows_bucket_margin_confirmation() -> None:
+    manifest = build_manifest(
+        "confirm",
+        n_reps=12,
+        seed=20261122,
+        conditions=("shipped", "bucket_margin_candidate"),
+        reference_condition="shipped",
+    )
+
+    assert manifest["conditions"] == ["shipped", "bucket_margin_candidate"]
+    assert manifest["reference_condition"] == "shipped"
+    assert manifest["n_reps"] == 12
+    assert manifest["seed"] == 20261122
     validate_manifest(manifest)
 
 

@@ -116,3 +116,32 @@ effect without changing that original design:
   --reference-condition no_warmup_cap400 \
   --output "${VBPCA_MARGIN_MANIFEST}"
 ```
+
+## Preregistered bucket-specific validation
+
+The confirmation and cap follow-up motivate one final, opt-in candidate. It
+sets `niter_broadprior=0` in every affected bucket and changes only the
+iteration margin by bucket: 1600 for `wide_moderate`, 400 for
+`tall_moderate`, 800 for `tall_extreme`, and 400 for `large_scale`. These
+choices were fixed before examining the final validation seeds. The original
+six-condition design and the shipped defaults remain unchanged.
+
+Validate the candidate against the shipped control with 12 paired replicates
+per confirmation regime and the held-out seed series beginning at 20261122:
+
+```bash
+"${VBPCA_PYTHON}" -m analysis.trade_study.validate_convergence_margins \
+  manifest --profile confirm --n-reps 12 --seed 20261122 \
+  --conditions shipped bucket_margin_candidate \
+  --reference-condition shipped \
+  --output "${VBPCA_MARGIN_MANIFEST}"
+export VBPCA_MARGIN_MANIFEST_SHA256="$(sha256sum "${VBPCA_MARGIN_MANIFEST}" | cut -d ' ' -f 1)"
+
+sbatch --array=0-1%2 \
+  --export=ALL,VBPCA_REPO_ROOT,VBPCA_TRADE_STUDY_ROOT,VBPCA_PYTHON,VBPCA_MARGIN_MANIFEST,VBPCA_MARGIN_OUTPUT_DIR,VBPCA_REVISION,VBPCA_TRADE_STUDY_REVISION,VBPCA_MARGIN_MANIFEST_SHA256 \
+  analysis/rockfish/convergence_margin_shared.sbatch
+```
+
+Do not substitute another cap, seed, replicate count, profile, or regime after
+seeing these results. A shipped-default change is a separate decision and
+commit made only after this immutable validation completes.

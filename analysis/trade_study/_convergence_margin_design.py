@@ -20,7 +20,18 @@ DEFAULT_CONDITIONS = (
     "no_warmup_cap400",
     "forced800",
 )
-CONDITIONS = (*DEFAULT_CONDITIONS, "no_warmup_cap800")
+CONDITIONS = (
+    *DEFAULT_CONDITIONS,
+    "no_warmup_cap800",
+    "bucket_margin_candidate",
+)
+
+_BUCKET_MARGIN_CAPS = {
+    "wide_moderate": 1600,
+    "tall_moderate": 400,
+    "tall_extreme": 800,
+    "large_scale": 400,
+}
 
 _ALL_CRITERIA_FALSE = {
     "angle": False,
@@ -199,6 +210,18 @@ def condition_config(n: int, p: int, condition: str) -> dict[str, Any]:
     elif condition == "no_warmup_cap800":
         config["niter_broadprior"] = 0
         config["maxiters"] = 800
+    elif condition == "bucket_margin_candidate":
+        bucket = vbpca_defaults._bucket(n, p)  # noqa: SLF001
+        try:
+            maxiters = _BUCKET_MARGIN_CAPS[bucket]
+        except KeyError as exc:
+            msg = (
+                "bucket_margin_candidate applies only to the convergence-margin "
+                f"study buckets, not {bucket!r}"
+            )
+            raise ValueError(msg) from exc
+        config["niter_broadprior"] = 0
+        config["maxiters"] = maxiters
     elif condition == "forced800":
         config["maxiters"] = 800
         config["convergence_criteria"] = copy.deepcopy(_ALL_CRITERIA_FALSE)
