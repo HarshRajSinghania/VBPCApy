@@ -47,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `select_n_components()` now passes its prepared probe mask explicitly into each candidate fit and seeds that mask from the caller's `random_state`. This prevents a second, differently seeded holdout inside `VBPCA.fit()` and makes a one-candidate sweep match the corresponding direct fit (#130).
 
 ### Changed
+- Four coarse `recommend_config()` buckets now use validated convergence
+  margins instead of suppressing every convergence stop through their full
+  iteration budget: `wide_moderate` uses zero warmup/1600 iterations,
+  `tall_moderate` zero/400, `tall_extreme` zero/800, and `large_scale`
+  zero/400. Across 120 preregistered paired fits, exact rank recovery improved
+  from 82.5% to 90.0%, rank MAE from 1.058 to 0.183, and selected-fit budget
+  hits fell from 100% to 5%; difficult wide and tall-extreme MNAR fits can
+  still reach the cap (#133, #166, #168).
 - `cross_validate_components()` now accepts held-out probe RMS (`"prms"`) as
   its sole selection objective. Variational cost remains available in returned
   diagnostics but is no longer mislabeled as a held-out CV metric (#144).

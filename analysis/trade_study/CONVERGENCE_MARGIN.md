@@ -117,6 +117,11 @@ effect without changing that original design:
   --output "${VBPCA_MARGIN_MANIFEST}"
 ```
 
+Within this versioned study, `shipped` retains the pre-validation warmup and
+cap values even after public recommendations adopt a validated candidate.
+This prevents later defaults from redefining the historical control or its
+one-factor ablations.
+
 ## Preregistered bucket-specific validation
 
 The confirmation and cap follow-up motivate one final, opt-in candidate. It
@@ -145,3 +150,27 @@ sbatch --array=0-1%2 \
 Do not substitute another cap, seed, replicate count, profile, or regime after
 seeing these results. A shipped-default change is a separate decision and
 commit made only after this immutable validation completes.
+
+## Validation outcome
+
+The preregistered run completed on Rockfish as array job `31220503`, pinned to
+VBPCApy merge `2a41cad6ca54519ef224e44bc0f24a9915eddd5c` and trade-study
+revision `68753adab5e420629ee0cbc20c319e675029a071`. Its manifest SHA-256 is
+`96f0c4332cfc0b8f374c50b2149be850038251084c45546ac5704c6a551c61f9`.
+
+Across 120 paired fits per condition, the candidate improved exact rank
+recovery from 0.825 to 0.900 (paired difference 0.075; 95% bootstrap CI 0.008
+to 0.142), rank MAE from 1.058 to 0.183 (gain 0.875; CI 0.417 to 1.383), and
+holdout RMSE from 0.848 to 0.588 (difference -0.260; CI -0.375 to -0.157).
+Coverage was unchanged within uncertainty. The selected-fit budget-hit rate
+fell from 100% to 5%.
+
+The remaining six selected-fit budget hits comprised two microbiome and two
+wide-complete replicates at the 1600-iteration cap and two tall-extreme-MNAR
+replicates at the 800-iteration cap. The wide-complete setting also shifted
+from severe under-selection toward moderate over-selection: exact recovery
+fell from 3/12 to 1/12 even though mean rank MAE improved from 1.917 to 1.750
+and holdout RMSE improved by 0.669. These qualifications are retained rather
+than tuning again on the final validation seeds. The primary paired endpoints
+support shipping the registered policy; see #166 and #168 for the full
+decision record.

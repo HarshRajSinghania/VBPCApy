@@ -128,6 +128,28 @@ def test_recommend_config_extreme_buckets_differ_from_moderate() -> None:
     assert tall_extreme != tall_moderate
 
 
+@pytest.mark.parametrize(
+    ("n", "p", "bucket", "niter_broadprior", "maxiters"),
+    [
+        (50, 300, "wide_moderate", 0, 1600),
+        (1000, 50, "tall_moderate", 0, 400),
+        (3000, 30, "tall_extreme", 0, 800),
+        (250, 250, "large_scale", 0, 400),
+        # The valid post-warmup margin in the unstudied wide-extreme bucket
+        # remains unchanged.
+        (30, 2000, "wide_extreme", 100, 500),
+    ],
+)
+def test_validated_coarse_bucket_convergence_margins(
+    n: int, p: int, bucket: str, niter_broadprior: int, maxiters: int
+) -> None:
+    with pytest.warns(UserWarning, match=bucket):
+        config = recommend_config(n=n, p=p)
+
+    assert config["niter_broadprior"] == niter_broadprior
+    assert config["maxiters"] == maxiters
+
+
 def test_recommended_config_fits() -> None:
     """A recommended config is accepted by the estimator and fits."""
     rng = np.random.default_rng(0)
