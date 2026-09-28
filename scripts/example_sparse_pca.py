@@ -28,9 +28,7 @@ def main() -> None:
     w_true = rng.standard_normal((n_features, true_rank))
     s_true = rng.standard_normal((true_rank, n_samples))
     noise_std = 0.3
-    x_clean = w_true @ s_true + noise_std * rng.standard_normal(
-        (n_features, n_samples)
-    )
+    x_clean = w_true @ s_true + noise_std * rng.standard_normal((n_features, n_samples))
 
     # Observation pattern from scipy.sparse.random; stored entries = observed.
     density = 0.35
@@ -121,7 +119,7 @@ def main() -> None:
         fig = scree_plot(model_sparse)
         fig.savefig("example_sparse_pca_scree.png", dpi=120, bbox_inches="tight")
         log.info("Wrote scree plot to example_sparse_pca_scree.png")
-    except Exception as exc:  # noqa: BLE001 — plotting is optional
+    except Exception as exc:
         log.info("Skipping scree plot (%s)", exc)
 
     log.info("Done.")
